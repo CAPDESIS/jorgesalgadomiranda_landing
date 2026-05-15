@@ -1,0 +1,11 @@
+[allowlist]
+description = "Allowlist for known safe patterns"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)node_modules(/|$)''',
+  '''(^|/)\.git(/|$)''',
+  '''(^|/)vendor(/|$)''',
+  '''(^|/)\.dart_tool(/|$)''',
+  '''(^|/)build(/|$)''',
+  '''(^|/)dist(/|$)''',
+]

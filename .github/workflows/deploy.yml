@@ -80,6 +80,7 @@ jobs:
           UMAMI_ID: ${{ secrets.UMAMI_WEBSITE_ID }}
           CF_BEACON: ${{ secrets.CF_BEACON_TOKEN }}
           WEB3FORMS: ${{ secrets.WEB3FORMS_ACCESS_KEY }}
+          POSTHOG_KEY: ${{ secrets.PUBLIC_POSTHOG_KEY }}
         run: |
           set -e
           # Replace the YOUR_* placeholders at deploy time so the committed
@@ -99,8 +100,12 @@ jobs:
             python3 -c "import os,pathlib; f=pathlib.Path('index.html'); f.write_text(f.read_text().replace('YOUR_WEB3FORMS_ACCESS_KEY', os.environ['WEB3FORMS']))"
             INJECTED="$INJECTED WEB3FORMS_ACCESS_KEY"
           fi
+          if [ -n "$POSTHOG_KEY" ]; then
+            python3 -c "import os,pathlib; f=pathlib.Path('index.html'); f.write_text(f.read_text().replace('YOUR_POSTHOG_KEY', os.environ['POSTHOG_KEY']))"
+            INJECTED="$INJECTED PUBLIC_POSTHOG_KEY"
+          fi
           if [ -z "$INJECTED" ]; then
-            echo "No optional tokens configured. Landing will keep placeholders and Umami/CF/Web3Forms init will skip at runtime."
+            echo "No optional tokens configured. Landing will keep placeholders and Umami/CF/Web3Forms/PostHog init will skip at runtime."
           else
             echo "Injected:$INJECTED"
           fi
