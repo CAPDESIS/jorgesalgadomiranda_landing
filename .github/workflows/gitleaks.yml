@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   gitleaks:
-    runs-on: [self-hosted, test-light]
+    runs-on: [self-hosted, ci-runner-node, test-light]
     steps:
       - uses: actions/checkout@v6
         with:

@@ -16,7 +16,7 @@ env:
 jobs:
   deploy:
     name: FTP upload
-    runs-on: [self-hosted, deploy-only]
+    runs-on: [self-hosted, ci-runner-node, deploy-only]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
