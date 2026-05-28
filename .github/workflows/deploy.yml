@@ -4,6 +4,22 @@ on:
   # Production promotion is Monday/manual only after staging validation.
   workflow_dispatch:
     inputs:
+      release_sha:
+        description: 'Exact staging-validated commit SHA to deploy.'
+        required: true
+        default: ''
+      confirm_staging_green:
+        description: 'Type yes to confirm staging health/smoke/load passed.'
+        required: true
+        default: 'no'
+      confirm_no_p0_p1_alerts:
+        description: 'Type yes to confirm central monitoring has no open P0/P1 alerts.'
+        required: true
+        default: 'no'
+      confirm_backup_ready:
+        description: 'Type yes if backup is current, or n/a if this release does not touch data.'
+        required: true
+        default: 'n/a'
       emergency_override:
         description: 'Set true only for explicitly approved emergency deploys outside Monday.'
         required: false
@@ -21,6 +37,7 @@ jobs:
   deploy:
     name: FTP upload
     runs-on: [self-hosted, ci-runner-node, deploy-only]
+    environment: production
     steps:
       - name: Enforce Monday production window
         run: |
@@ -34,8 +51,31 @@ jobs:
             exit 1
           fi
 
+      - name: Validate production release gates
+        run: |
+          set -euo pipefail
+          release_sha="${{ inputs.release_sha }}"
+          if [ "${#release_sha}" -ne 40 ] || ! printf '%s' "$release_sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::release_sha must be the exact 40-character staging-validated commit SHA."
+            exit 1
+          fi
+          if [ "${{ inputs.confirm_staging_green }}" != "yes" ]; then
+            echo "::error::confirm_staging_green=yes is required."
+            exit 1
+          fi
+          if [ "${{ inputs.confirm_no_p0_p1_alerts }}" != "yes" ]; then
+            echo "::error::confirm_no_p0_p1_alerts=yes is required."
+            exit 1
+          fi
+          case "${{ inputs.confirm_backup_ready }}" in
+            yes|n/a) ;;
+            *) echo "::error::confirm_backup_ready must be yes or n/a."; exit 1 ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_sha }}
 
       - name: Sanitize FTP host
         id: host
@@ -75,7 +115,7 @@ jobs:
 
       - name: Cache-bust asset URLs
         env:
-          SHA: ${{ github.sha }}
+          SHA: ${{ inputs.release_sha }}
         run: |
           set -e
           # Append the commit SHA as a version query to the stylesheet and
@@ -169,7 +209,7 @@ jobs:
 
       - name: Post-deploy smoke test
         env:
-          SHA: ${{ github.sha }}
+          SHA: ${{ inputs.release_sha }}
         run: |
           set -e
           # Cloudflare Bot Fight Mode challenges HTML and XML endpoints
