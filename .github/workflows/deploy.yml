@@ -1,9 +1,13 @@
 name: Deploy to Hostinger
 
 on:
-  push:
-    branches: [main]
+  # Production promotion is Monday/manual only after staging validation.
   workflow_dispatch:
+    inputs:
+      emergency_override:
+        description: 'Set true only for explicitly approved emergency deploys outside Monday.'
+        required: false
+        default: 'false'
 
 concurrency:
   group: deploy-production
@@ -18,6 +22,18 @@ jobs:
     name: FTP upload
     runs-on: [self-hosted, ci-runner-node, deploy-only]
     steps:
+      - name: Enforce Monday production window
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.emergency_override }}" = "true" ]; then
+            echo "::warning::Emergency override approved; bypassing Monday window."
+            exit 0
+          fi
+          if [ "$(TZ=America/Mexico_City date +%u)" != "1" ]; then
+            echo "::error::Production deploys are allowed only on Monday in America/Mexico_City after staging validation."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v6
 
