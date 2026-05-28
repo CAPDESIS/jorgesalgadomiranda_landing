@@ -36,7 +36,7 @@ env:
 jobs:
   deploy:
     name: FTP upload
-    runs-on: [self-hosted, ci-runner-node, deploy-only]
+    runs-on: [self-hosted, public-only, ci-runner-node, deploy-only]
     environment: production
     steps:
       - name: Enforce Monday production window
