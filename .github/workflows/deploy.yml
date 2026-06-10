@@ -195,7 +195,7 @@ jobs:
             fi
             echo "Contact form access key injected; placeholder is gone."
           else
-            echo "::warning::WEB3FORMS_ACCESS_KEY is not configured. The contact form will ship the placeholder and silently reject every submission. Set the secret under Settings > Secrets and variables > Actions, then redeploy."
+            echo "::warning::WEB3FORMS_ACCESS_KEY is not configured. The contact form will ship the placeholder, so the client-side guard blocks every submission and shows the visitor a visible error status. Set the secret under Settings > Secrets and variables > Actions, then redeploy."
           fi
 
       - name: Deploy via FTPS

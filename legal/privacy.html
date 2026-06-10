@@ -153,7 +153,7 @@
   </ul>
 
   <h2>4. Retention</h2>
-  <p>Contact form emails stay in my ProtonMail inbox indefinitely unless you request deletion, so that I can reopen a thread if you reach out again years later. Analytics data is retained by Umami and Cloudflare per their default policies; none of it identifies individuals.</p>
+  <p>Contact form emails stay in my ProtonMail inbox indefinitely unless you request deletion, so that I can reopen a thread if you reach out again years later. Analytics data is retained by Umami, Cloudflare and PostHog per their default policies. Umami and Cloudflare data is aggregate and does not identify individuals; PostHog data is also anonymous unless a visitor is explicitly identified, in which case PostHog builds a person profile and stores it in the United States (us.i.posthog.com) under its own retention policy.</p>
 
   <h2>5. Sharing</h2>
   <p>I do not sell data. I share it only with the tools listed above, acting as processors. No marketing mailing list, no ad networks, no data brokers.</p>
@@ -165,7 +165,7 @@
   <p>TLS 1.2+, HSTS preload, CSP, Cloudflare bot fight mode, rotating FTP credentials on the host, and no server-side application on this domain (all content is static HTML served from Hostinger).</p>
 
   <h2>8. Cookies and local storage</h2>
-  <p>To remember your analytics choice, the site stores a single first-party item named <code>jsm-cookie-consent</code> in your browser's local storage. It records whether you accepted, the timestamp and a version number, and expires after 365 days; it is strictly necessary for the consent mechanism and is not used for tracking. Umami and Cloudflare analytics remain cookieless. If you accept analytics, PostHog sets its own cookies and storage identifiers to measure usage; declining or choosing essentials only prevents PostHog from loading. Cal.com may set cookies on its own domain when you book a call; that is subject to Cal.com's policy.</p>
+  <p>To remember your analytics choice, the site stores a single first-party item named <code>jsm-cookie-consent</code> in your browser's local storage. It records whether you accepted, the timestamp and a version number. After 365 days the site treats the record as expired and shows the consent banner again so you can renew your choice; the stored item itself is not auto-deleted from your browser, but you can clear it at any time through your browser's site-data controls. It is strictly necessary for the consent mechanism and is not used for tracking. Umami and Cloudflare analytics remain cookieless. If you accept analytics, PostHog sets its own cookies and storage identifiers to measure usage; declining or choosing essentials only prevents PostHog from loading. Cal.com may set cookies on its own domain when you book a call; that is subject to Cal.com's policy.</p>
 
   <h2>9. Changes to this notice</h2>
   <p>If material changes occur, the "Last updated" line above reflects them. Minor wording changes are not separately notified.</p>
@@ -199,7 +199,7 @@
     </ul>
 
     <h2>4. Conservación</h2>
-    <p>Los correos del formulario se quedan en mi bandeja de ProtonMail de manera indefinida salvo que pidas su eliminación, así puedo retomar un hilo si me contactas años después. La analítica se retiene según las políticas por defecto de Umami y Cloudflare; no identifica individuos.</p>
+    <p>Los correos del formulario se quedan en mi bandeja de ProtonMail de manera indefinida salvo que pidas su eliminación, así puedo retomar un hilo si me contactas años después. La analítica se retiene según las políticas por defecto de Umami, Cloudflare y PostHog. Los datos de Umami y Cloudflare son agregados y no identifican individuos; los de PostHog también son anónimos salvo que un visitante se identifique explícitamente, en cuyo caso PostHog crea un perfil de persona y lo almacena en Estados Unidos (us.i.posthog.com) bajo su propia política de conservación.</p>
 
     <h2>5. Transferencias</h2>
     <p>No vendo datos. Solo los comparto con las herramientas listadas arriba, como encargadas. Sin listas de marketing, sin redes publicitarias, sin brokers de datos.</p>
@@ -211,7 +211,7 @@
     <p>TLS 1.2+, HSTS preload, CSP, Cloudflare bot fight mode, rotación de credenciales FTP en el host, y sin backend de aplicación en este dominio (todo el contenido se sirve estático desde Hostinger).</p>
 
     <h2>8. Cookies y almacenamiento local</h2>
-    <p>Para recordar tu elección de analítica, el sitio guarda un único elemento propio llamado <code>jsm-cookie-consent</code> en el almacenamiento local de tu navegador. Registra si aceptaste, la marca de tiempo y un número de versión, y caduca a los 365 días; es estrictamente necesario para el mecanismo de consentimiento y no se usa para rastreo. Las analíticas de Umami y Cloudflare siguen siendo sin cookies. Si aceptas la analítica, PostHog coloca sus propias cookies e identificadores para medir el uso; rechazar o elegir solo esenciales evita que PostHog se cargue. Cal.com puede establecer cookies en su propio dominio cuando agendas una llamada; eso se rige por la política de Cal.com.</p>
+    <p>Para recordar tu elección de analítica, el sitio guarda un único elemento propio llamado <code>jsm-cookie-consent</code> en el almacenamiento local de tu navegador. Registra si aceptaste, la marca de tiempo y un número de versión. Después de 365 días el sitio considera el registro como vencido y vuelve a mostrar el banner de consentimiento para que renueves tu elección; el elemento almacenado no se borra automáticamente de tu navegador, pero puedes eliminarlo cuando quieras desde los controles de datos del sitio de tu navegador. Es estrictamente necesario para el mecanismo de consentimiento y no se usa para rastreo. Las analíticas de Umami y Cloudflare siguen siendo sin cookies. Si aceptas la analítica, PostHog coloca sus propias cookies e identificadores para medir el uso; rechazar o elegir solo esenciales evita que PostHog se cargue. Cal.com puede establecer cookies en su propio dominio cuando agendas una llamada; eso se rige por la política de Cal.com.</p>
 
     <h2>9. Cambios al aviso</h2>
     <p>Si hay cambios materiales, la fecha de "Última actualización" arriba los refleja. Cambios menores no se notifican por separado.</p>
