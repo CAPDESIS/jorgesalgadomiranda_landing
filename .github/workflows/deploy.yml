@@ -166,6 +166,38 @@ jobs:
             echo "Injected:$INJECTED"
           fi
 
+      - name: Assert contact form access key is live
+        env:
+          WEB3FORMS: ${{ secrets.WEB3FORMS_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          # Guard against the silent dead-form failure mode: if the
+          # WEB3FORMS_ACCESS_KEY secret is configured, the access_key input in
+          # the HTML that is about to be uploaded MUST no longer carry the
+          # YOUR_WEB3FORMS_ACCESS_KEY placeholder. When the placeholder ships,
+          # the client-side guard blocks every submission and the primary
+          # lead-gen CTA is dead for every visitor with no visible signal.
+          #
+          # This checks the local index.html, which is the exact byte stream
+          # the FTP step uploads as a single atomic batch. We do not fetch the
+          # live HTML here because Cloudflare Bot Fight Mode returns 403 to
+          # runner IPs (see the smoke-test step), so an origin probe is not a
+          # reliable assertion from CI.
+          KEY_LINE=$(grep -E 'name="access_key"' index.html || true)
+          if [ -z "$KEY_LINE" ]; then
+            echo "::error::Could not find the access_key input in index.html; the contact form markup changed."
+            exit 1
+          fi
+          if [ -n "${WEB3FORMS:-}" ]; then
+            if printf '%s' "$KEY_LINE" | grep -q 'YOUR_WEB3FORMS_ACCESS_KEY'; then
+              echo "::error::WEB3FORMS_ACCESS_KEY secret is set but the access_key input still ships the YOUR_WEB3FORMS_ACCESS_KEY placeholder. The contact form would be dead in production. Check the 'Inject production tokens' step."
+              exit 1
+            fi
+            echo "Contact form access key injected; placeholder is gone."
+          else
+            echo "::warning::WEB3FORMS_ACCESS_KEY is not configured. The contact form will ship the placeholder and silently reject every submission. Set the secret under Settings > Secrets and variables > Actions, then redeploy."
+          fi
+
       - name: Deploy via FTPS
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
