@@ -2636,9 +2636,15 @@
         return;
       }
 
-      // Access key guard (fail fast if user hasn't configured Web3Forms yet)
+      // Access key guard (fail fast if user hasn't configured Web3Forms yet).
+      // Match the placeholder by its YOUR_ sentinel prefix rather than the exact
+      // string: the deploy step replaces every occurrence of the full
+      // placeholder token at build time, so an exact-string comparison here
+      // would also be rewritten to the real key and reject every submission.
+      // A real Web3Forms access key never starts with "YOUR_".
       const accessKeyInput = form.querySelector('input[name="access_key"]');
-      if (!accessKeyInput || accessKeyInput.value === 'YOUR_WEB3FORMS_ACCESS_KEY' || !accessKeyInput.value) {
+      const accessKeyValue = accessKeyInput ? accessKeyInput.value : '';
+      if (!accessKeyValue || accessKeyValue.indexOf('YOUR_') === 0) {
         setStatus('error', 'form.err.submit');
         return;
       }
