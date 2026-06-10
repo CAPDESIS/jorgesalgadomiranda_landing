@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <!--
   ─────────────────────────────────────────────────────────────
-  Jorge Salgado Miranda. Privacy notice (draft template).
-  Review before going live. Not linked from main nav yet.
-  Live URL will be: https://jorgesalgadomiranda.com/legal/privacy.html
+  Jorge Salgado Miranda. Privacy notice.
+  Linked from the site footer and the analytics consent banner.
+  Live URL: https://jorgesalgadomiranda.com/legal/privacy.html
   ─────────────────────────────────────────────────────────────
 -->
 <html lang="en" data-origin="jsm">
@@ -129,7 +129,7 @@
 
   <header>
     <h1>Privacy Notice</h1>
-    <div class="meta">Last updated 2026-04-22</div>
+    <div class="meta">Last updated 2026-06-10</div>
   </header>
 
   <p>This notice explains how <strong>jorgesalgadomiranda.com</strong> (operated by Jorge Salgado Miranda, Mexico City, Mexico) collects, uses, retains and protects the personal data of visitors and leads.</p>
@@ -141,7 +141,7 @@
   <ul>
     <li><strong>Contact form submissions:</strong> name, email, company (optional), topic of interest and message body. Submitted through <a href="https://web3forms.com/">Web3Forms</a> to my inbox.</li>
     <li><strong>Booking data</strong> if you schedule a call via <a href="https://cal.com/">Cal.com</a>: name, email, time slot, optional notes. Processed by Cal.com under their own terms.</li>
-    <li><strong>Analytics:</strong> aggregate, privacy-preserving page-view data via <a href="https://umami.is/">Umami</a> (self-hosted, no cookies, no personal identifiers) and <a href="https://www.cloudflare.com/web-analytics/">Cloudflare Web Analytics</a> (zero-cookie, edge-native). Neither issues cookies, so no consent banner is needed.</li>
+    <li><strong>Analytics:</strong> page-view and product-usage data via three tools. <a href="https://umami.is/">Umami</a> (self-hosted, no cookies, no personal identifiers) and <a href="https://www.cloudflare.com/web-analytics/">Cloudflare Web Analytics</a> (zero-cookie, edge-native) report aggregate traffic. <a href="https://posthog.com/">PostHog</a> (hosted in the United States at us.i.posthog.com) captures pageviews, page-leaves and interaction events to understand which sections are useful; it sets cookies and browser storage identifiers and is configured to build a person profile only when a visitor is identified. Because PostHog can set cookies, the site shows a consent banner and PostHog, Umami and Cloudflare analytics only run after you accept it. If you choose essentials only, none of these analytics load.</li>
     <li><strong>Edge and security logs</strong> via Cloudflare for basic DDoS and bot protection. IP addresses may be briefly retained for abuse mitigation; they are not used for marketing or profiling.</li>
   </ul>
 
@@ -164,8 +164,8 @@
   <h2>7. Security</h2>
   <p>TLS 1.2+, HSTS preload, CSP, Cloudflare bot fight mode, rotating FTP credentials on the host, and no server-side application on this domain (all content is static HTML served from Hostinger).</p>
 
-  <h2>8. Cookies</h2>
-  <p>This site does not set any first-party cookies. Third-party analytics are cookieless. Cal.com may set cookies on its own domain when you book a call; that is subject to Cal.com's policy.</p>
+  <h2>8. Cookies and local storage</h2>
+  <p>To remember your analytics choice, the site stores a single first-party item named <code>jsm-cookie-consent</code> in your browser's local storage. It records whether you accepted, the timestamp and a version number, and expires after 365 days; it is strictly necessary for the consent mechanism and is not used for tracking. Umami and Cloudflare analytics remain cookieless. If you accept analytics, PostHog sets its own cookies and storage identifiers to measure usage; declining or choosing essentials only prevents PostHog from loading. Cal.com may set cookies on its own domain when you book a call; that is subject to Cal.com's policy.</p>
 
   <h2>9. Changes to this notice</h2>
   <p>If material changes occur, the "Last updated" line above reflects them. Minor wording changes are not separately notified.</p>
@@ -174,7 +174,7 @@
 
   <header>
     <h1 lang="es">Aviso de Privacidad</h1>
-    <div class="meta">Última actualización 2026-04-22</div>
+    <div class="meta">Última actualización 2026-06-10</div>
   </header>
 
   <p lang="es">Este aviso explica cómo <strong>jorgesalgadomiranda.com</strong> (operado por Jorge Salgado Miranda, Ciudad de México) recolecta, usa, conserva y protege los datos personales de visitantes y leads.</p>
@@ -187,7 +187,7 @@
     <ul>
       <li><strong>Formulario de contacto:</strong> nombre, correo, empresa (opcional), tema y mensaje. Se envían vía <a href="https://web3forms.com/">Web3Forms</a> a mi bandeja.</li>
       <li><strong>Reservas</strong> si agendas una llamada por <a href="https://cal.com/">Cal.com</a>: nombre, correo, horario y notas opcionales. Procesado por Cal.com bajo sus propios términos.</li>
-      <li><strong>Analítica</strong> agregada y sin cookies mediante <a href="https://umami.is/">Umami</a> (auto-hospedado) y <a href="https://www.cloudflare.com/web-analytics/">Cloudflare Web Analytics</a> (zero-cookie). No se requiere banner de cookies.</li>
+      <li><strong>Analítica</strong> de visitas y uso mediante tres herramientas. <a href="https://umami.is/">Umami</a> (auto-hospedado, sin cookies, sin identificadores personales) y <a href="https://www.cloudflare.com/web-analytics/">Cloudflare Web Analytics</a> (zero-cookie) reportan tráfico agregado. <a href="https://posthog.com/">PostHog</a> (alojado en Estados Unidos en us.i.posthog.com) captura vistas de página, salidas de página y eventos de interacción para entender qué secciones son útiles; coloca cookies e identificadores en el navegador y está configurado para crear un perfil de persona solo cuando un visitante se identifica. Como PostHog puede colocar cookies, el sitio muestra un banner de consentimiento y las analíticas de PostHog, Umami y Cloudflare solo se ejecutan después de que aceptas. Si eliges solo esenciales, ninguna de estas analíticas se carga.</li>
       <li><strong>Logs de edge</strong> de Cloudflare para protección DDoS y bots. Las IPs pueden retenerse brevemente para mitigación de abuso; no se usan para marketing ni perfilado.</li>
     </ul>
 
@@ -210,8 +210,8 @@
     <h2>7. Seguridad</h2>
     <p>TLS 1.2+, HSTS preload, CSP, Cloudflare bot fight mode, rotación de credenciales FTP en el host, y sin backend de aplicación en este dominio (todo el contenido se sirve estático desde Hostinger).</p>
 
-    <h2>8. Cookies</h2>
-    <p>Este sitio no coloca cookies propias. La analítica de terceros es sin cookies. Cal.com puede establecer cookies en su propio dominio cuando agendas una llamada; eso se rige por la política de Cal.com.</p>
+    <h2>8. Cookies y almacenamiento local</h2>
+    <p>Para recordar tu elección de analítica, el sitio guarda un único elemento propio llamado <code>jsm-cookie-consent</code> en el almacenamiento local de tu navegador. Registra si aceptaste, la marca de tiempo y un número de versión, y caduca a los 365 días; es estrictamente necesario para el mecanismo de consentimiento y no se usa para rastreo. Las analíticas de Umami y Cloudflare siguen siendo sin cookies. Si aceptas la analítica, PostHog coloca sus propias cookies e identificadores para medir el uso; rechazar o elegir solo esenciales evita que PostHog se cargue. Cal.com puede establecer cookies en su propio dominio cuando agendas una llamada; eso se rige por la política de Cal.com.</p>
 
     <h2>9. Cambios al aviso</h2>
     <p>Si hay cambios materiales, la fecha de "Última actualización" arriba los refleja. Cambios menores no se notifican por separado.</p>
