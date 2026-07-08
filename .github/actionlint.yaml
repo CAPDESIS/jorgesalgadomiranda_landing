@@ -1,0 +1,10 @@
+self-hosted-runner:
+  labels:
+    - global
+    - ci-runner-node
+    - build-heavy
+    - deploy-only
+    - docker
+    - policy-light
+    - public-only
+    - test-light
