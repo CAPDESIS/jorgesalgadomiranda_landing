@@ -24,11 +24,18 @@ jobs:
           fetch-depth: 0
       - name: Install gitleaks
         run: |
+          set -euo pipefail
           GITLEAKS_VERSION="8.24.0"
-          wget -qO- "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar xz
+          TARBALL="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          BASE_URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          wget -q "${BASE_URL}/${TARBALL}"
+          wget -q "${BASE_URL}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          sha256sum --ignore-missing --check "gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          tar xzf "${TARBALL}" gitleaks
           chmod +x gitleaks
+          rm "${TARBALL}" "gitleaks_${GITLEAKS_VERSION}_checksums.txt"
       - name: Run gitleaks
-        run: ./gitleaks detect --source . --config .gitleaks.toml --report-format sarif --report-path gitleaks.sarif --exit-code 1
+        run: ./gitleaks detect --source . --config .gitleaks.toml --redact --no-banner --report-format sarif --report-path gitleaks.sarif --exit-code 1
       - name: Upload SARIF
         if: always()
         continue-on-error: true
