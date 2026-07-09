@@ -21,6 +21,11 @@ main-to-production pilot:
   upload and asset smoke all passed.
 - External smoke after deploy returned HTTP 200 for `/`, `/robots.txt` and the
   versioned CSS asset.
+- Follow-up `fd23fc4` confirmed the origin/new cache-busted HTML carried the
+  updated CapMenu link, while Hostinger CDN kept bare `/` stale as
+  `x-hcdn-cache-status: HIT`. The workflow now validates cache-busted HTML
+  content when the edge allows it, and `.htaccess` sets explicit 5-minute
+  HTML/XML Expires plus `s-maxage=300`.
 - Current warning: `WEB3FORMS_ACCESS_KEY` is not configured, so the contact form
   intentionally ships the placeholder and blocks submission with a visible
   client-side error. Set the secret and rerun deploy to enable the form.

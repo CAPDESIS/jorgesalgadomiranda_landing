@@ -300,14 +300,29 @@ jobs:
           # curl to fetch / or /sitemap.xml reliably returns 403 in CI even
           # though the real site is fine for browsers.
           #
-          # Workaround: only probe static assets that Cloudflare does not
-          # challenge (text files, versioned CSS and JS, images, fonts).
-          # If these land correctly it is safe to assume the accompanying
-          # HTML reached the origin too, because the FTP upload is a single
-          # atomic batch. Failing this step still catches: missing FTP
-          # upload, wrong server-dir nesting, Hostinger origin outage, and
-          # CDN that forgot to serve a fresh file.
+          # Workaround: probe cache-busted HTML when the edge allows it, then
+          # always probe static assets that Cloudflare does not challenge
+          # (text files, versioned CSS and JS, images, fonts). Failing the
+          # asset checks still catches: missing FTP upload, wrong server-dir
+          # nesting, Hostinger origin outage, and CDN that forgot to serve a
+          # fresh file.
           V="${SHA:0:7}"
+          HTML_CODE=$(curl -sL -o /tmp/jsm-index.html -w '%{http_code}' \
+            -A "Mozilla/5.0 (compatible; JSMSmokeTest/1.0; +https://jorgesalgadomiranda.com)" \
+            "https://jorgesalgadomiranda.com/?v=${V}" || true)
+          if [ "$HTML_CODE" = "200" ]; then
+            grep -q "assets/styles.css?v=${V}" /tmp/jsm-index.html || {
+              echo "::error::Cache-busted HTML does not reference assets/styles.css?v=${V}."
+              exit 1
+            }
+            if grep -q "capmenu.app" /tmp/jsm-index.html; then
+              echo "::error::Cache-busted HTML still contains retired capmenu.app."
+              exit 1
+            fi
+            echo "OK   /?v=${V} -> 200 and HTML content matches release ${V}"
+          else
+            echo "::warning::Cache-busted HTML returned $HTML_CODE from CI; continuing with asset smoke because Cloudflare may challenge runner HTML requests."
+          fi
           URLS=(
             "/robots.txt"
             "/humans.txt"

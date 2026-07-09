@@ -80,6 +80,12 @@ post-audit polish commit you are about to push.
   deploy ships a unique cache key; (2) `.htaccess` caps HTML at
   `max-age=300, must-revalidate` so the versioned asset URL inside
   propagates in minutes, not a day.
+- **2026-07-08 domain-link deploy caveat:** push deploy `fd23fc4` uploaded the
+  new `capmenu.com` CTA and the cache-busted URL `/?v=fd23fc4` served it, but
+  Hostinger CDN kept bare `/` as `x-hcdn-cache-status: HIT` with stale HTML.
+  `.htaccess` now also sets explicit HTML/XML Expires rules and `s-maxage=300`,
+  and the deploy smoke checks cache-busted HTML content when Cloudflare allows
+  the runner request.
 - **CSP fix for stack logos.** 27 devicon SVGs were CSP-blocked because
   `img-src` did not include `cdn.jsdelivr.net`. First loosened the
   allowlist as a hotfix; then self-hosted all 22 unique logos under

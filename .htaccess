@@ -67,6 +67,10 @@
   ExpiresByType image/webp "access plus 6 months"
   ExpiresByType text/css "access plus 7 days"
   ExpiresByType application/javascript "access plus 7 days"
+  ExpiresByType text/html "access plus 5 minutes"
+  ExpiresByType application/xhtml+xml "access plus 5 minutes"
+  ExpiresByType application/xml "access plus 5 minutes"
+  ExpiresByType text/xml "access plus 5 minutes"
   ExpiresDefault "access plus 1 day"
 </IfModule>
 
@@ -82,7 +86,7 @@
   # so browsers pull fresh bytes regardless; HTML is the entry point that
   # carries the new asset URLs, so it must not be pinned by CDN edges.
   <FilesMatch "\.(html|htm|xml)$">
-    Header set Cache-Control "public, max-age=300, must-revalidate"
+    Header set Cache-Control "public, max-age=300, s-maxage=300, must-revalidate"
   </FilesMatch>
 </IfModule>
 
