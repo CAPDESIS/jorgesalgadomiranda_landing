@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "bunx serve . -l 3000",
     "build": "echo 'Static site, no build step required'",
-    "deploy": "bash scripts/deploy.sh"
+    "deploy": "bash scripts/deploy.sh",
+    "test": "bun test --coverage"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.10.6"
   }
 }

@@ -1,0 +1,6 @@
+[test]
+preload = ["./tests/setup.ts"]
+coverage = true
+coverageReporter = ["text", "lcov"]
+coveragePathIgnorePatterns = ["tests/", "node_modules/"]
+coverageThreshold = 0.85

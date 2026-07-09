@@ -1,5 +1,6 @@
 node_modules/
 bun.lockb
+coverage/
 .DS_Store
 .env
 .env.local

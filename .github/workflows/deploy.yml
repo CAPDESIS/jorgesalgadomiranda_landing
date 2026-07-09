@@ -177,8 +177,15 @@ jobs:
           V="${SHA:0:7}"
           sed -i -E "s#href=\"assets/styles\.css\"#href=\"assets/styles.css?v=${V}\"#g" index.html
           sed -i -E "s#src=\"assets/i18n\.js\"#src=\"assets/i18n.js?v=${V}\"#g" index.html
+          # Extracted JS modules under assets/js/ (email validation, consent,
+          # cookie banner, i18n helpers, welcome modal) need the same
+          # cache-busting as styles.css/i18n.js above.
+          for f in consent i18n-utils welcome-modal email-validation cookie-banner; do
+            sed -i -E "s#src=\"assets/js/${f}\.js\"#src=\"assets/js/${f}.js?v=${V}\"#g" index.html
+          done
           echo "Asset version: ${V}"
           grep -E "assets/(styles\.css|i18n\.js)" index.html || (echo "::error::cache-bust rewrite missed expected references" && exit 1)
+          grep -cE "assets/js/[a-z0-9-]+\.js\?v=${V}" index.html | grep -q '^5$' || (echo "::error::cache-bust rewrite missed one of the assets/js/*.js references" && exit 1)
 
       - name: Inject production tokens (optional, skip silently if secret missing)
         env:
@@ -273,6 +280,8 @@ jobs:
             **/node_modules/**
             **/scripts/**
             **/docs/**
+            **/tests/**
+            **/coverage/**
             **/.env
             **/.env.example
             **/.env.local
@@ -281,6 +290,8 @@ jobs:
             **/package.json
             **/package-lock.json
             **/bun.lockb
+            **/bun.lock
+            **/bunfig.toml
             **/README.md
             **/CLAUDE.md
             **/HANDOFF.md
@@ -314,6 +325,11 @@ jobs:
             "/og.png"
             "/assets/styles.css?v=${V}"
             "/assets/i18n.js?v=${V}"
+            "/assets/js/consent.js?v=${V}"
+            "/assets/js/i18n-utils.js?v=${V}"
+            "/assets/js/welcome-modal.js?v=${V}"
+            "/assets/js/email-validation.js?v=${V}"
+            "/assets/js/cookie-banner.js?v=${V}"
             "/assets/logos/kotlin.svg"
             "/fonts/geist.woff2"
             "/assets/cv/Jorge_Salgado_Miranda_CV_EN.pdf"
