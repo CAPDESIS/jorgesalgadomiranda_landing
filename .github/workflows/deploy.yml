@@ -1,7 +1,26 @@
 name: Deploy to Hostinger
 
 on:
-  # Production promotion is Monday/manual only after staging validation.
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy.yml"
+      - ".htaccess"
+      - "404.html"
+      - "assets/**"
+      - "cv/**"
+      - "fonts/**"
+      - "humans.txt"
+      - "index.html"
+      - "legal/**"
+      - "og.png"
+      - "robots.txt"
+      - "sitemap.xml"
+  schedule:
+    # Static production refresh after daily validation windows.
+    - cron: "40 13 * * *"
+  # Manual production promotion keeps explicit release gate confirmations.
   workflow_dispatch:
     inputs:
       release_sha:
@@ -39,9 +58,35 @@ jobs:
     runs-on: [self-hosted, public-only, ci-runner-node, deploy-only]
     environment: production
     steps:
+      - name: Resolve release context
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_RELEASE_SHA: ${{ inputs.release_sha }}
+          GITHUB_SHA_VALUE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            release_sha="$INPUT_RELEASE_SHA"
+            manual_gate="true"
+          else
+            release_sha="$GITHUB_SHA_VALUE"
+            manual_gate="false"
+          fi
+          if [ "${#release_sha}" -ne 40 ] || ! printf '%s' "$release_sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::release_sha must be a 40-character commit SHA."
+            exit 1
+          fi
+          echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
+          echo "manual_gate=$manual_gate" >> "$GITHUB_OUTPUT"
+
       - name: Enforce Monday production window
         run: |
           set -euo pipefail
+          if [ "${{ steps.release.outputs.manual_gate }}" != "true" ]; then
+            echo "Automated static deploy path; Monday manual window is not required."
+            exit 0
+          fi
           if [ "${{ inputs.emergency_override }}" = "true" ]; then
             echo "::warning::Emergency override approved; bypassing Monday window."
             exit 0
@@ -54,10 +99,14 @@ jobs:
       - name: Validate production release gates
         run: |
           set -euo pipefail
-          release_sha="${{ inputs.release_sha }}"
+          release_sha="${{ steps.release.outputs.release_sha }}"
           if [ "${#release_sha}" -ne 40 ] || ! printf '%s' "$release_sha" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "::error::release_sha must be the exact 40-character staging-validated commit SHA."
             exit 1
+          fi
+          if [ "${{ steps.release.outputs.manual_gate }}" != "true" ]; then
+            echo "Automated static deploy from main uses github.sha=$release_sha and post-deploy smoke gates."
+            exit 0
           fi
           if [ "${{ inputs.confirm_staging_green }}" != "yes" ]; then
             echo "::error::confirm_staging_green=yes is required."
@@ -75,7 +124,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.release_sha }}
+          ref: ${{ steps.release.outputs.release_sha }}
 
       - name: Sanitize FTP host
         id: host
@@ -115,7 +164,7 @@ jobs:
 
       - name: Cache-bust asset URLs
         env:
-          SHA: ${{ inputs.release_sha }}
+          SHA: ${{ steps.release.outputs.release_sha }}
         run: |
           set -e
           # Append the commit SHA as a version query to the stylesheet and
@@ -241,7 +290,7 @@ jobs:
 
       - name: Post-deploy smoke test
         env:
-          SHA: ${{ inputs.release_sha }}
+          SHA: ${{ steps.release.outputs.release_sha }}
         run: |
           set -e
           # Cloudflare Bot Fight Mode challenges HTML and XML endpoints
