@@ -1,3 +1,26 @@
+# Session Handoff, 2026-07-08
+
+## Latest round (2026-07-08)
+
+- `.github/workflows/deploy.yml` is now a validated main-to-production static
+  deploy pilot. It runs on landing-file `push` to `main`, daily at `13:40 UTC`,
+  and manual `workflow_dispatch`.
+- Manual dispatch still requires `release_sha`, Monday window and confirmation
+  gates; automated static deploys derive the SHA from `github.sha` and rely on
+  post-deploy asset smoke.
+- Commit `bc3f382` deployed successfully in GitHub Actions run `28984333192`
+  in 26 seconds. Steps passed: release context, host preflight, cache-bust,
+  token injection, contact-form guard, FTPS upload and asset smoke.
+- External smoke returned HTTP 200 for `/`, `/robots.txt` and
+  `assets/styles.css?v=bc3f382`.
+- Residual warning: `WEB3FORMS_ACCESS_KEY` is not configured, so the contact
+  form ships the placeholder and blocks submission with a visible error. Set the
+  secret and redeploy when form submissions should be live.
+- GitHub emitted a non-blocking Node runtime annotation for
+  `SamKirkland/FTP-Deploy-Action@v4.3.5`; track under toolchain drift.
+
+---
+
 # Session Handoff, 2026-04-22
 
 ## Latest round (2026-04-22)

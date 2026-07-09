@@ -1,10 +1,29 @@
 # Deploy
 
-The site is hosted on Hostinger and deploys two ways, both via FTP:
+The site is hosted on Hostinger and deploys two ways, both via FTP/FTPS:
 
-1. **Automatic** on every push to `main` via GitHub Actions (preferred).
+1. **Automatic** on landing-file pushes to `main` and daily schedule via
+   GitHub Actions (preferred).
 2. **Manual** from your laptop via `bun run deploy` (fallback if Actions
    billing is paused or you want to test before pushing).
+
+## Current production pilot status
+
+As of 2026-07-08, `.github/workflows/deploy.yml` is a validated
+main-to-production pilot:
+
+- `push` to `main` deploys when static site inputs change.
+- A daily production refresh runs at `13:40 UTC`.
+- `workflow_dispatch` remains available and keeps the explicit release SHA,
+  Monday window and confirmation gates.
+- Run `28984333192` on commit `bc3f382` passed in 26 seconds: release context,
+  host preflight, cache-bust, optional token injection, contact-form guard, FTPS
+  upload and asset smoke all passed.
+- External smoke after deploy returned HTTP 200 for `/`, `/robots.txt` and the
+  versioned CSS asset.
+- Current warning: `WEB3FORMS_ACCESS_KEY` is not configured, so the contact form
+  intentionally ships the placeholder and blocks submission with a visible
+  client-side error. Set the secret and rerun deploy to enable the form.
 
 ## Automatic deploy: GitHub Actions
 
@@ -34,13 +53,21 @@ manually from the Actions tab using the "Run workflow" button (the
 workflow is registered with `workflow_dispatch`).
 
 Flow:
-1. `actions/checkout@v4` pulls the repo.
-2. `SamKirkland/FTP-Deploy-Action@v4.3.5` mirrors the working tree to the
-   FTP server on port 21 (plain FTP; Hostinger doesn't offer FTPS).
-3. The action uses the same exclude list as the local deploy script, so
+1. The workflow resolves the release SHA from `github.sha` for automated runs
+   or from the manual `release_sha` input for `workflow_dispatch`.
+2. Manual dispatch keeps the Monday window and confirmation gates; automated
+   static deploys rely on the exact `main` SHA plus post-deploy smoke.
+3. `actions/checkout@v6` pulls the selected SHA.
+4. The workflow sanitizes and resolves `FTP_HOST`.
+5. It rewrites CSS/JS URLs with the short SHA for cache busting.
+6. Optional production tokens are injected from secrets when configured.
+7. `SamKirkland/FTP-Deploy-Action@v4.3.5` mirrors the working tree to the
+   FTP server on port 21 using FTPS.
+8. The action uses the same exclude list as the local deploy script, so
    `.git*`, `.github/`, `docs/`, `scripts/`, `.env*`, `node_modules/`,
    `bun.lockb`, `package*.json`, `README.md` and `og.html` never leave
    the repo.
+9. Static assets are smoke-tested from the public domain after upload.
 
 Typical duration: 30-60 seconds.
 
@@ -84,10 +111,12 @@ you the DNS didn't resolve. Double-check the value in hPanel.
   you're likely double-nested. The chroot already lands you inside
   `public_html/`, so `server-dir: public_html/` would create
   `public_html/public_html/`. Keep `server-dir: ./`.
-- **FTPS handshake failure**: if your account doesn't support FTPS,
-  change `protocol: ftps` back to `protocol: ftp` in
-  `.github/workflows/deploy.yml`. Hostinger supports FTPS on port 21
-  (explicit TLS); some older accounts may still be plain FTP only.
+- **FTPS handshake failure**: verify Hostinger supports explicit FTPS on port
+  21 for this FTP account before changing protocol. Do not silently downgrade
+  to plain FTP without documenting the risk.
+- **Contact form warning**: set `WEB3FORMS_ACCESS_KEY` in GitHub Actions
+  secrets. Without it the workflow still deploys, but the client-side guard
+  blocks submissions visibly.
 - **Concurrency lock** from a still-running deploy. The `concurrency`
   block in the workflow serializes deploys so you won't race yourself.
 
@@ -140,8 +169,9 @@ This re-runs the same mirror against the remote with the old file tree,
 restoring it. Then switch back to `main` locally so future commits are
 based on current.
 
-Alternatively, trigger the GitHub Actions workflow manually pointing at
-the last-good commit via the "Run workflow" UI.
+Alternatively, trigger the GitHub Actions workflow manually pointing at the
+last-good commit via the "Run workflow" UI and provide the required
+confirmations.
 
 ## Smoke test before deploy
 
