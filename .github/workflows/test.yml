@@ -1,18 +1,6 @@
 name: test
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "assets/js/**"
-      - "assets/i18n.js"
-      - "tests/**"
-      - "index.html"
-      - "package.json"
-      - "bun.lock"
-      - "bunfig.toml"
-      - ".github/workflows/test.yml"
-
   workflow_dispatch:
 
   schedule:
@@ -31,7 +19,6 @@ permissions:
 jobs:
   bun-test:
     name: bun test --coverage (>= 85% lines)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, public-only, ci-runner-node, test-light]
     steps:
       - uses: actions/checkout@v6
