@@ -134,31 +134,13 @@
   the cookie banner at the bottom of the page (or has a stored prior
   acceptance). Banner code lives just before </body>.
 -->
+<script src="assets/js/consent.js"></script>
 <script>
 (function () {
   var UMAMI_ID = 'YOUR_UMAMI_WEBSITE_ID';
   var CF_TOKEN = 'YOUR_CF_BEACON_TOKEN';
   var POSTHOG_KEY = 'YOUR_POSTHOG_KEY';
   var POSTHOG_HOST = 'https://us.i.posthog.com';
-
-  // Single source of truth for the consent storage contract. The banner
-  // (defined at the bottom of the page) writes the exact same shape.
-  var CONSENT_KEY = 'jsm-cookie-consent';
-  var CONSENT_TTL_MS = 365 * 24 * 60 * 60 * 1000; // 365 days
-  var CONSENT_VERSION = 1;
-
-  var readConsent = function () {
-    try {
-      var raw = localStorage.getItem(CONSENT_KEY);
-      if (!raw) return null;
-      var parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object') return null;
-      if (parsed.version !== CONSENT_VERSION) return null;
-      if (typeof parsed.timestamp !== 'number') return null;
-      if ((Date.now() - parsed.timestamp) > CONSENT_TTL_MS) return null;
-      return parsed;
-    } catch (_) { return null; }
-  };
 
   var inject = function (attrs, src) {
     var s = document.createElement('script');
@@ -168,24 +150,23 @@
     document.head.appendChild(s);
   };
 
-  var loaded = false;
-  var loadAnalytics = function () {
-    if (loaded) return;
-    loaded = true;
-    if (UMAMI_ID && UMAMI_ID.indexOf('YOUR_') !== 0) {
-      inject({ 'data-website-id': UMAMI_ID }, 'https://stats.capdesis.com/script.js');
-    }
-    if (CF_TOKEN && CF_TOKEN.indexOf('YOUR_') !== 0) {
+  // The consent gate (assets/js/consent.js) decides WHICH providers may
+  // load and WHEN; this file only knows HOW to inject each provider's tag.
+  var injectors = {
+    umami: function (id) {
+      inject({ 'data-website-id': id }, 'https://stats.capdesis.com/script.js');
+    },
+    cloudflare: function (token) {
       var c = document.createElement('script');
       c.defer = true;
       c.src = 'https://static.cloudflareinsights.com/beacon.min.js';
-      c.setAttribute('data-cf-beacon', JSON.stringify({ token: CF_TOKEN }));
+      c.setAttribute('data-cf-beacon', JSON.stringify({ token: token }));
       document.head.appendChild(c);
-    }
-    if (POSTHOG_KEY && POSTHOG_KEY.indexOf('YOUR_') !== 0) {
+    },
+    posthog: function (key, host) {
       !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey identify setPersonProperties".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
-      posthog.init(POSTHOG_KEY, {
-        api_host: POSTHOG_HOST,
+      posthog.init(key, {
+        api_host: host,
         person_profiles: 'identified_only',
         capture_pageview: true,
         capture_pageleave: true,
@@ -194,25 +175,24 @@
     }
   };
 
+  var gate = window.JSMConsent.createConsentGate({
+    onAccept: function () {
+      window.JSMConsent.loadAnalytics(
+        { umamiId: UMAMI_ID, cfToken: CF_TOKEN, posthogKey: POSTHOG_KEY, posthogHost: POSTHOG_HOST },
+        injectors
+      );
+    }
+  });
+
   // Expose the contract so the banner script (and any future preferences UI)
   // can read it without duplicating the constants.
-  window.__jsmConsent = {
-    KEY: CONSENT_KEY,
-    TTL_MS: CONSENT_TTL_MS,
-    VERSION: CONSENT_VERSION,
-    read: readConsent
-  };
+  window.__jsmConsent = gate;
 
   // Fast path: prior acceptance within TTL fires analytics on this pageview.
-  var prior = readConsent();
-  if (prior && prior.accepted === true) {
-    loadAnalytics();
-  } else {
-    // Otherwise wait for the banner to dispatch the consent event.
+  // Otherwise wait for the banner to dispatch the consent event.
+  if (!gate.triggerIfAccepted()) {
     window.addEventListener('jsm-cookie-consent', function (e) {
-      if (e && e.detail && e.detail.accepted === true) {
-        loadAnalytics();
-      }
+      gate.handleConsentEvent(e && e.detail);
     });
   }
 })();
@@ -2027,6 +2007,9 @@
 </main>
 
 <script src="assets/i18n.js"></script>
+<script src="assets/js/i18n-utils.js"></script>
+<script src="assets/js/welcome-modal.js"></script>
+<script src="assets/js/email-validation.js"></script>
 <script>
 // Main app script, microanimations, theme, lang, reveal, count-up, etc.
 (function () {
@@ -2039,12 +2022,18 @@
   const cvPreviewYearEl = document.getElementById('cv-preview-year');
   if (cvPreviewYearEl) cvPreviewYearEl.textContent = NOW_YEAR;
 
+  // Year-math and the {{yearsSince:YYYY}} token substitution live in
+  // assets/js/i18n-utils.js (unit tested); this IIFE only wires them to
+  // the DOM elements that display them.
+  const { computeYearsSince, subYears: subYearsFor } = window.JSMI18nUtils;
+  const subYears = (s) => subYearsFor(s, NOW_YEAR);
+
   // Replace every [data-years-since="YYYY"] span with the elapsed years.
   // Used for "8 years shipping" style numbers; auto-increments each Jan 1st.
   const applyYearsSince = () => {
     document.querySelectorAll('[data-years-since]').forEach(el => {
       const since = parseInt(el.getAttribute('data-years-since'), 10);
-      if (!isNaN(since)) el.textContent = String(NOW_YEAR - since);
+      if (!isNaN(since)) el.textContent = String(computeYearsSince(since, NOW_YEAR));
     });
   };
   applyYearsSince();
@@ -2054,11 +2043,8 @@
   const yearsStat = document.querySelector('[data-count-since]');
   if (yearsStat) {
     const since = parseInt(yearsStat.getAttribute('data-count-since'), 10);
-    yearsStat.setAttribute('data-count', String(NOW_YEAR - since));
+    yearsStat.setAttribute('data-count', String(computeYearsSince(since, NOW_YEAR)));
   }
-
-  // Token substitution for strings that don't render HTML (title/desc meta).
-  const subYears = (s) => s.replace(/\{\{yearsSince:(\d+)\}\}/g, (_, y) => String(NOW_YEAR - parseInt(y, 10)));
 
   // ============ THEME ============
   const savedTheme = localStorage.getItem('theme');
@@ -2492,14 +2478,15 @@
   // Shows after 12s once per 7 days. Dismiss persists in localStorage.
   const modal = document.getElementById('welcome-modal');
   if (modal) {
-    const STORAGE_KEY = 'jsm_welcome_v1';
-    const DISMISS_DAYS = 7;
-    const SHOW_DELAY_MS = 12000;
+    // Dismiss-window math (parseDismissedAt/isStillHidden) lives in
+    // assets/js/welcome-modal.js so it is unit tested; this IIFE only
+    // wires it to localStorage and the modal DOM.
+    const { WELCOME_STORAGE_KEY: STORAGE_KEY, WELCOME_SHOW_DELAY_MS: SHOW_DELAY_MS, parseDismissedAt, isStillHidden } = window.JSMWelcomeModal;
 
     const now = Date.now();
     const raw = (() => { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } })();
-    const dismissed = raw ? parseInt(raw, 10) : 0;
-    const stillHidden = dismissed && (now - dismissed) < DISMISS_DAYS * 86400000;
+    const dismissed = parseDismissedAt(raw);
+    const stillHidden = isStillHidden(dismissed, now);
 
     const closeModal = (persist) => {
       modal.dataset.open = 'false';
@@ -2545,23 +2532,10 @@
   // ============ CONTACT FORM (Web3Forms + disposable email filter) ============
   const form = document.getElementById('contact-form');
   if (form) {
-    // Inline list of common disposable / temporary email providers (~70 of the highest-volume).
-    // Not exhaustive. Catches the lazy bots; real bad actors can still register real mailboxes.
-    const DISPOSABLE = new Set([
-      '10minutemail.com','10minutemail.net','20minutemail.com','30minutemail.com','mailinator.com','mailinator.net','mailinator2.com',
-      'guerrillamail.com','guerrillamail.net','guerrillamail.org','guerrillamail.biz','guerrillamail.de','sharklasers.com','grr.la',
-      'yopmail.com','yopmail.fr','yopmail.net','cool.fr.nf','jetable.fr.nf','nospam.ze.tc','nomail.xl.cx','mega.zik.dj',
-      'trashmail.com','trashmail.net','trashmail.org','trashmail.io','trashmail.de','trash-mail.com','trashinbox.com',
-      'throwawaymail.com','throwawayemail.com','dispostable.com','getnada.com','nada.email','maildrop.cc','mailcatch.com',
-      'fakeinbox.com','fakemailgenerator.com','fake-email.com','tempail.com','tempmail.com','tempmail.net','tempmailaddress.com',
-      'tempr.email','tmpmail.org','tmpmail.net','tmpeml.com','temp-mail.org','temp-mail.io','temp-mail.ru',
-      'mohmal.com','emailondeck.com','moakt.com','mailnesia.com','mailnull.com','mytemp.email','discard.email','burnermail.io',
-      'mailtemp.info','emailfake.com','10mail.org','anonbox.net','boun.cr','inboxbear.com','inboxkitten.com','mintemail.com',
-      'mvrht.com','spamgourmet.com','spambog.com','spambox.us','guerrillamailblock.com','sneakemail.com','tempemail.co',
-      'throwam.com','yopmail.org','zetmail.com'
-    ]);
-    // Conservative RFC5322-ish regex, good enough for client-side UX gating.
-    const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}$/;
+    // Disposable-domain list, regex and the validateEmail() decision live in
+    // assets/js/email-validation.js (loaded above assets/i18n.js) so they
+    // are unit-testable; this IIFE only wires DOM events to that decision.
+    const validateEmail = window.JSMEmailValidation.validateEmail;
 
     const emailInput = form.querySelector('#cf-email');
     const emailHint = form.querySelector('#cf-email-hint');
@@ -2581,15 +2555,6 @@
       emailHint.dataset.state = state;
       emailHint.textContent = key ? t(key, '') : '';
       if (emailInput) emailInput.setAttribute('aria-invalid', state === 'error' ? 'true' : 'false');
-    };
-
-    const validateEmail = (raw) => {
-      const value = (raw || '').trim().toLowerCase();
-      if (!value) return { ok: false, key: 'form.err.required' };
-      if (!EMAIL_RE.test(value)) return { ok: false, key: 'form.err.email' };
-      const domain = value.split('@')[1];
-      if (DISPOSABLE.has(domain)) return { ok: false, key: 'form.err.disposable' };
-      return { ok: true };
     };
 
     emailInput?.addEventListener('blur', () => {
@@ -2807,92 +2772,28 @@
   </div>
 </div>
 
+<script src="assets/js/cookie-banner.js"></script>
 <script>
 (function () {
   var banner = document.getElementById('cookie-banner');
   if (!banner) return;
 
+  // Copy dictionary, the fallback contract and the persist/render logic
+  // live in assets/js/cookie-banner.js (unit tested); this IIFE only wires
+  // them to this page's DOM and events.
+  var CB = window.JSMCookieBanner;
+
   // Pull contract from the head IIFE. Fall back to local defaults so the
   // banner still works if the loader script never ran (defense in depth).
-  var contract = window.__jsmConsent || {
-    KEY: 'jsm-cookie-consent',
-    TTL_MS: 365 * 24 * 60 * 60 * 1000,
-    VERSION: 1,
-    read: function () {
-      try {
-        var raw = localStorage.getItem('jsm-cookie-consent');
-        if (!raw) return null;
-        var parsed = JSON.parse(raw);
-        if (!parsed || parsed.version !== 1) return null;
-        if ((Date.now() - parsed.timestamp) > (365 * 24 * 60 * 60 * 1000)) return null;
-        return parsed;
-      } catch (_) { return null; }
-    }
-  };
-
-  // Bilingual copy. Spanish is default per site language; EN swaps in when
-  // the user toggles or arrives with lang=en. Strings are intentionally short
-  // so the banner fits on small screens without scrolling.
-  var COPY = {
-    es: {
-      title: 'Privacidad',
-      body: 'Uso analíticas anónimas (PostHog, Umami, Cloudflare) para entender qué páginas son útiles. No se ejecutan hasta que aceptes.',
-      link: 'Aviso de privacidad',
-      accept: 'Aceptar todas',
-      reject: 'Solo esenciales',
-      close: 'Cerrar'
-    },
-    en: {
-      title: 'Privacy',
-      body: 'I use anonymous analytics (PostHog, Umami, Cloudflare) to learn which pages help. Nothing runs until you accept.',
-      link: 'Privacy notice',
-      accept: 'Accept all',
-      reject: 'Essentials only',
-      close: 'Close'
-    }
-  };
-
-  var currentLang = function () {
-    var l = document.documentElement.getAttribute('data-lang');
-    return (l === 'en') ? 'en' : 'es';
-  };
+  var contract = window.__jsmConsent || CB.createFallbackContract();
 
   var applyCopy = function () {
-    var dict = COPY[currentLang()];
-    var title = banner.querySelector('[data-cookie-i18n="title"]');
-    var bodyText = banner.querySelector('[data-cookie-i18n="body"]');
-    var accept = banner.querySelector('[data-cookie-i18n="accept"]');
-    var reject = banner.querySelector('[data-cookie-i18n="reject"]');
-    var close = banner.querySelector('[data-cookie-i18n="close"]');
-    if (title) title.textContent = dict.title;
-    if (accept) accept.textContent = dict.accept;
-    if (reject) reject.textContent = dict.reject;
-    if (close) {
-      close.setAttribute('aria-label', dict.close);
-      close.textContent = dict.close;
-    }
-    // Rebuild the body paragraph from scratch so the inline link text
-    // and the trailing period are always in sync with the active locale.
-    if (bodyText) {
-      while (bodyText.firstChild) bodyText.removeChild(bodyText.firstChild);
-      bodyText.appendChild(document.createTextNode(dict.body + ' '));
-      var a = document.createElement('a');
-      a.href = 'legal/privacy.html';
-      a.setAttribute('data-cookie-i18n', 'link');
-      a.textContent = dict.link;
-      bodyText.appendChild(a);
-      bodyText.appendChild(document.createTextNode('.'));
-    }
+    var lang = document.documentElement.getAttribute('data-lang');
+    CB.applyCopy(banner, CB.pickCopy(lang), document);
   };
 
   var persist = function (accepted) {
-    try {
-      localStorage.setItem(contract.KEY, JSON.stringify({
-        accepted: !!accepted,
-        timestamp: Date.now(),
-        version: contract.VERSION
-      }));
-    } catch (_) { /* private mode, etc. */ }
+    CB.persist(localStorage, contract, accepted);
   };
 
   var hide = function () {
