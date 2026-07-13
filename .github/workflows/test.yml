@@ -34,6 +34,9 @@ jobs:
       - name: Run tests with coverage
         run: bun test --coverage
 
+      - name: Contact API contract tests (Resend mock)
+        run: bun run test:contact
+
       - name: Fail if any em-dash/en-dash slipped into JS or tests
         run: |
           set -euo pipefail

@@ -19,7 +19,7 @@ Doctype: static single-file site, no framework, no bundler, no runtime deps
 Deployed on: Hostinger (Apache + mod_expires)
 Proxied by: Cloudflare (WAF, DDoS, analytics beacon)
 Analytics: Umami (self-hosted on stats.capdesis.com)
-Forms: Web3Forms
+Forms: Resend (same-origin /api/contact.php)
 Booking: Cal.com
 Fonts: Instrument Serif, Geist, Geist Mono (self-hosted woff2)
 Icons: devicon (self-hosted SVG under assets/logos)

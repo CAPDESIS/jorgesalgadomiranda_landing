@@ -191,8 +191,16 @@ jobs:
         env:
           UMAMI_ID: ${{ secrets.UMAMI_WEBSITE_ID }}
           CF_BEACON: ${{ secrets.CF_BEACON_TOKEN }}
-          WEB3FORMS: ${{ secrets.WEB3FORMS_ACCESS_KEY }}
           POSTHOG_KEY: ${{ secrets.PUBLIC_POSTHOG_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          RESEND_TO: ${{ secrets.RESEND_TO }}
+          RESEND_REPLY_TO: ${{ secrets.RESEND_REPLY_TO }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
         run: |
           set -e
           # Replace the YOUR_* placeholders at deploy time so the committed
@@ -208,50 +216,68 @@ jobs:
             python3 -c "import os,pathlib; f=pathlib.Path('index.html'); f.write_text(f.read_text().replace('YOUR_CF_BEACON_TOKEN', os.environ['CF_BEACON']))"
             INJECTED="$INJECTED CF_BEACON_TOKEN"
           fi
-          if [ -n "$WEB3FORMS" ]; then
-            python3 -c "import os,pathlib; f=pathlib.Path('index.html'); f.write_text(f.read_text().replace('YOUR_WEB3FORMS_ACCESS_KEY', os.environ['WEB3FORMS']))"
-            INJECTED="$INJECTED WEB3FORMS_ACCESS_KEY"
-          fi
           if [ -n "$POSTHOG_KEY" ]; then
             python3 -c "import os,pathlib; f=pathlib.Path('index.html'); f.write_text(f.read_text().replace('YOUR_POSTHOG_KEY', os.environ['POSTHOG_KEY']))"
             INJECTED="$INJECTED PUBLIC_POSTHOG_KEY"
           fi
+          # Contact delivery secrets stay server-side in api/secrets.php (never HTML).
+          if [ -n "$RESEND_API_KEY" ] || [ -n "$SMTP_HOST" ]; then
+            python3 -c '
+import os, pathlib, pprint
+secrets = {}
+for key in (
+    "RESEND_API_KEY", "RESEND_FROM", "RESEND_TO", "RESEND_REPLY_TO",
+    "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM",
+):
+    val = os.environ.get(key, "").strip()
+    if val:
+        secrets[key] = val
+if "RESEND_FROM" not in secrets and secrets.get("RESEND_API_KEY"):
+    secrets["RESEND_FROM"] = "Jorge Salgado Miranda <noreply@jorgesalgadomiranda.com>"
+if "RESEND_TO" not in secrets:
+    secrets["RESEND_TO"] = "jorgesalgadomiranda@protonmail.com"
+body = "<?php\n// Generated at deploy — do not commit.\nreturn " + pprint.pformat(secrets, width=100) + ";\n"
+pathlib.Path("api/secrets.php").write_text(body)
+print("Wrote api/secrets.php with keys:", ", ".join(sorted(secrets)))
+'
+            INJECTED="$INJECTED RESEND_OR_SMTP"
+          fi
           if [ -z "$INJECTED" ]; then
-            echo "No optional tokens configured. Landing will keep placeholders and Umami/CF/Web3Forms/PostHog init will skip at runtime."
+            echo "No optional tokens configured. Landing will keep placeholders; contact returns 503 until RESEND_* secrets are set."
           else
             echo "Injected:$INJECTED"
           fi
 
-      - name: Assert contact form access key is live
+      - name: Assert contact Resend secrets are live
         env:
-          WEB3FORMS: ${{ secrets.WEB3FORMS_ACCESS_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: |
           set -euo pipefail
-          # Guard against the silent dead-form failure mode: if the
-          # WEB3FORMS_ACCESS_KEY secret is configured, the access_key input in
-          # the HTML that is about to be uploaded MUST no longer carry the
-          # YOUR_WEB3FORMS_ACCESS_KEY placeholder. When the placeholder ships,
-          # the client-side guard blocks every submission and the primary
-          # lead-gen CTA is dead for every visitor with no visible signal.
-          #
-          # This checks the local index.html, which is the exact byte stream
-          # the FTP step uploads as a single atomic batch. We do not fetch the
-          # live HTML here because Cloudflare Bot Fight Mode returns 403 to
-          # runner IPs (see the smoke-test step), so an origin probe is not a
-          # reliable assertion from CI.
-          KEY_LINE=$(grep -E 'name="access_key"' index.html || true)
-          if [ -z "$KEY_LINE" ]; then
-            echo "::error::Could not find the access_key input in index.html; the contact form markup changed."
+          # Contact posts to /api/contact.php. Secrets must never appear in HTML.
+          if grep -qiE 'web3forms|YOUR_WEB3FORMS|name="access_key"' index.html; then
+            echo "::error::index.html still references Web3Forms / access_key. Migrate leftovers before deploy."
             exit 1
           fi
-          if [ -n "${WEB3FORMS:-}" ]; then
-            if printf '%s' "$KEY_LINE" | grep -q 'YOUR_WEB3FORMS_ACCESS_KEY'; then
-              echo "::error::WEB3FORMS_ACCESS_KEY secret is set but the access_key input still ships the YOUR_WEB3FORMS_ACCESS_KEY placeholder. The contact form would be dead in production. Check the 'Inject production tokens' step."
+          if ! grep -q "/api/contact.php" index.html; then
+            echo "::error::index.html does not reference /api/contact.php."
+            exit 1
+          fi
+          if [ ! -f api/contact.php ]; then
+            echo "::error::api/contact.php missing from deploy tree."
+            exit 1
+          fi
+          if [ -n "${RESEND_API_KEY:-}" ]; then
+            if [ ! -f api/secrets.php ]; then
+              echo "::error::RESEND_API_KEY is set but api/secrets.php was not generated."
               exit 1
             fi
-            echo "Contact form access key injected; placeholder is gone."
+            if ! grep -q 'RESEND_API_KEY' api/secrets.php; then
+              echo "::error::api/secrets.php does not contain RESEND_API_KEY."
+              exit 1
+            fi
+            echo "Contact Resend secrets injected into api/secrets.php."
           else
-            echo "::warning::WEB3FORMS_ACCESS_KEY is not configured. The contact form will ship the placeholder, so the client-side guard blocks every submission and shows the visitor a visible error status. Set the secret under Settings > Secrets and variables > Actions, then redeploy."
+            echo "::warning::RESEND_API_KEY is not configured. Contact form will return 503 until Resend secrets are set (SMTP-only is last-resort fallback)."
           fi
 
       - name: Deploy via FTPS
@@ -298,6 +324,7 @@ jobs:
             **/og.html
             **/verify-*.png
             **/*.log
+            **/api/secrets.example.php
 
       - name: Post-deploy smoke test
         env:

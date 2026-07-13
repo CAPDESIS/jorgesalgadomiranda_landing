@@ -35,7 +35,7 @@ other personal sites:
   CVs to ATS-readable PDF via headless Chromium, stamps metadata via
   exiftool when present.
 - **Lead gen baked in.** Welcome modal with the "free 30-min review"
-  offer, Web3Forms contact form with honeypot + RFC5322 regex +
+  offer, Resend contact form (same-origin PHP proxy) with honeypot + RFC5322 regex +
   ~70-entry disposable-email blocklist, Cal.com CTA, Capdesis tier
   card for corporate invoicing.
 - **Analytics built for privacy.** Umami (self-hosted) plus Cloudflare
@@ -69,7 +69,7 @@ try:
 - Wait ~12 seconds, the 30-min-review modal appears. Dismiss persists
   for 7 days.
 - Scroll to *Contact*: 4 audit chips, Cal.com CTA, Capdesis tier card,
-  and the Web3Forms contact form.
+  and the Resend contact form (same-origin PHP proxy).
 - Scroll to *CV*: opens the EN or ES CV in a new tab.
 - Open DevTools `>` Console: you'll see the author signature.
 
@@ -196,7 +196,7 @@ togglable, persisted.
 - **i18n**: two frozen dictionaries on `window.__I18N__`, swapped via
   `data-i18n` attribute walker.
 - **Forms**: vanilla JS with client-side RFC5322 regex + disposable
-  email blocklist, posting to [Web3Forms](https://web3forms.com/).
+  email blocklist, posting to same-origin `/api/contact.php` (Resend primary, optional SMTP fallback).
 - **Analytics**: [Umami](https://umami.is/) (self-hosted) +
   [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/).
 - **Bookings**: [Cal.com](https://cal.com/) inline button.
@@ -236,7 +236,7 @@ Before going live, replace these in `index.html`:
 |-----------------------------|---------------------------------------|
 | `YOUR_UMAMI_WEBSITE_ID`     | Your Umami dashboard → Websites → Add |
 | `YOUR_CF_BEACON_TOKEN`      | Cloudflare → Analytics → Web Analytics |
-| `YOUR_WEB3FORMS_ACCESS_KEY` | web3forms.com (free, no signup)       |
+| `RESEND_API_KEY` (+ FROM/TO) | Resend dashboard → deploy injects `api/secrets.php` |
 | `jorgesalgadomiranda/30min` | Your Cal.com event type slug          |
 
 The contact form refuses to submit while placeholders remain, so you

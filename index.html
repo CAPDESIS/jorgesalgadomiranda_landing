@@ -202,7 +202,6 @@
 <link rel="preconnect" href="https://capdesis.com" crossorigin />
 <link rel="preconnect" href="https://stats.capdesis.com" crossorigin />
 <link rel="preconnect" href="https://static.cloudflareinsights.com" crossorigin />
-<link rel="dns-prefetch" href="https://api.web3forms.com" />
 <link rel="dns-prefetch" href="https://cal.com" />
 <link rel="preload" href="fonts/instrument-serif.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="preload" href="fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
@@ -1875,11 +1874,9 @@
           <input type="text" id="cf-website" name="botcheck" tabindex="-1" autocomplete="off" />
         </div>
 
-        <!-- Web3Forms access key (replace placeholder with value from web3forms.com) -->
-        <input type="hidden" name="access_key" value="YOUR_WEB3FORMS_ACCESS_KEY" />
         <input type="hidden" name="subject" value="New lead from jorgesalgadomiranda.com" />
-        <input type="hidden" name="from_name" value="jorgesalgadomiranda.com" />
-        <input type="hidden" name="redirect" value="false" />
+        <input type="hidden" name="source_page" value="/" />
+        <input type="hidden" name="locale" id="cf-locale" value="es" />
 
         <button type="submit" class="form-submit" id="cf-submit">
           <span data-i18n="form.submit">Send message</span>
@@ -2529,13 +2526,14 @@
     });
   }
 
-  // ============ CONTACT FORM (Web3Forms + disposable email filter) ============
+  // ============ CONTACT FORM (same-origin Resend proxy + disposable filter) ============
   const form = document.getElementById('contact-form');
   if (form) {
     // Disposable-domain list, regex and the validateEmail() decision live in
     // assets/js/email-validation.js (loaded above assets/i18n.js) so they
     // are unit-testable; this IIFE only wires DOM events to that decision.
     const validateEmail = window.JSMEmailValidation.validateEmail;
+    const contactApiUrl = '/api/contact.php';
 
     const emailInput = form.querySelector('#cf-email');
     const emailHint = form.querySelector('#cf-email-hint');
@@ -2544,6 +2542,7 @@
     const submitLabel = submitBtn?.querySelector('[data-i18n="form.submit"]');
     const status = form.querySelector('#cf-status');
     const honeypot = form.querySelector('input[name="botcheck"]');
+    const localeInput = form.querySelector('#cf-locale');
 
     const t = (key, fallback) => {
       try { return (window.__I18N__ && window.__I18N__[document.documentElement.dataset.lang || 'es']?.[key]) || fallback; }
@@ -2601,26 +2600,17 @@
         return;
       }
 
-      // Access key guard (fail fast if user hasn't configured Web3Forms yet).
-      // Match the placeholder by its YOUR_ sentinel prefix rather than the exact
-      // string: the deploy step replaces every occurrence of the full
-      // placeholder token at build time, so an exact-string comparison here
-      // would also be rewritten to the real key and reject every submission.
-      // A real Web3Forms access key never starts with "YOUR_".
-      const accessKeyInput = form.querySelector('input[name="access_key"]');
-      const accessKeyValue = accessKeyInput ? accessKeyInput.value : '';
-      if (!accessKeyValue || accessKeyValue.indexOf('YOUR_') === 0) {
-        setStatus('error', 'form.err.submit');
-        return;
+      if (localeInput) {
+        localeInput.value = document.documentElement.dataset.lang || 'es';
       }
 
-      // Submit
+      // Submit to same-origin PHP proxy (Resend primary; optional SMTP fallback).
       if (submitBtn) submitBtn.disabled = true;
       if (submitLabel) submitLabel.textContent = t('form.sending', 'Sending…');
 
       try {
         const fd = new FormData(form);
-        const res = await fetch('https://api.web3forms.com/submit', {
+        const res = await fetch(contactApiUrl, {
           method: 'POST',
           headers: { 'Accept': 'application/json' },
           body: fd
