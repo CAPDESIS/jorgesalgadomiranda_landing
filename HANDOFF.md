@@ -13,9 +13,8 @@
   token injection, contact-form guard, FTPS upload and asset smoke.
 - External smoke returned HTTP 200 for `/`, `/robots.txt` and
   `assets/styles.css?v=bc3f382`.
-- Residual warning: `WEB3FORMS_ACCESS_KEY` is not configured, so the contact
-  form ships the placeholder and blocks submission with a visible error. Set the
-  secret and redeploy when form submissions should be live.
+- - Residual warning: `RESEND_API_KEY` is not configured, so `/api/contact.php`
+  returns 503 until Resend secrets are set and redeployed.
 - GitHub emitted a non-blocking Node runtime annotation for
   `SamKirkland/FTP-Deploy-Action@v4.3.5`; track under toolchain drift.
 
@@ -452,7 +451,7 @@ See `docs/MANUAL_SETUP.md` for the full list and how to set each one.
 Snapshot:
 - `YOUR_UMAMI_WEBSITE_ID`, analytics
 - `YOUR_CF_BEACON_TOKEN`, analytics
-- `YOUR_WEB3FORMS_ACCESS_KEY`, contact form
+- `RESEND_API_KEY` / `RESEND_FROM` / `RESEND_TO` → `api/secrets.php`
 - `jorgesalgadomiranda/30min`, Cal.com slug may need update
 
 Every one of these is behind an `if (!startsWith("YOUR_"))` guard so

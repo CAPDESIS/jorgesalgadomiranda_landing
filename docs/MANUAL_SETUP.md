@@ -94,35 +94,15 @@ Other one-time settings worth checking:
 
 ---
 
-## 4 · Web3Forms access key (contact form)
+## 4 · Resend contact delivery
 
-Free, no signup required beyond entering an email.
+1. Create a Resend API key and verify the From domain.
+2. Add GitHub Actions secrets: `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_TO`.
+3. Redeploy. CI writes `api/secrets.php` (never commit it).
+4. Optional SMTP fallback: `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM`.
 
-1. Open https://web3forms.com/.
-2. In the "Create your Access Key" form, enter
-   `jorgesalgadomiranda@protonmail.com` (this is where submissions
-   will be delivered).
-3. Check that inbox: they send a confirmation with your unique
-   access key.
-4. Open `index.html`, search for `YOUR_WEB3FORMS_ACCESS_KEY`, replace
-   with the key.
-5. Commit + push.
-6. Smoke-test locally first: `python3 -m http.server 8765 --bind
-   127.0.0.1`, fill the form with a real address, submit, confirm the
-   email lands in your inbox.
+See [`RESEND_SETUP.md`](./RESEND_SETUP.md) and [`GITHUB_SECRETS.md`](./GITHUB_SECRETS.md).
 
-**What's already in place:**
-
-- Honeypot field (bots that auto-fill all inputs get silently
-  rejected).
-- RFC5322 email regex.
-- ~70-domain blocklist for disposable addresses (mailinator,
-  yopmail, guerrillamail, etc.), checks client-side before the
-  request leaves the browser.
-- Guard that refuses to submit while the placeholder is still in
-  place, so you'll see a clear error until you finish this step.
-
----
 
 ## 5 · Cal.com event type
 
@@ -221,7 +201,7 @@ I can generate templates when you're ready. Ping me.
 ```
 YOUR_UMAMI_WEBSITE_ID      → index.html (section 1)
 YOUR_CF_BEACON_TOKEN       → index.html (section 2)
-YOUR_WEB3FORMS_ACCESS_KEY  → index.html (section 4)
+RESEND_* secrets → api/secrets.php at deploy (section 4)
 jorgesalgadomiranda/30min  → index.html, cal-cta href (section 5)
 ```
 

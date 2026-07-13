@@ -4,6 +4,7 @@ coverage/
 .DS_Store
 .env
 .env.local
+api/secrets.php
 *.log
 .idea/
 .vscode/

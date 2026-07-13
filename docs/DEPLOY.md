@@ -26,9 +26,9 @@ main-to-production pilot:
   `x-hcdn-cache-status: HIT`. The workflow now validates cache-busted HTML
   content when the edge allows it, and `.htaccess` sets explicit 5-minute
   HTML/XML Expires plus `s-maxage=300`.
-- Current warning: `WEB3FORMS_ACCESS_KEY` is not configured, so the contact form
-  intentionally ships the placeholder and blocks submission with a visible
-  client-side error. Set the secret and rerun deploy to enable the form.
+- Current note: set `RESEND_API_KEY` (+ `RESEND_FROM` / `RESEND_TO`) in GitHub
+  Actions so deploy writes `api/secrets.php`. Without it, `/api/contact.php`
+  returns 503. See `docs/RESEND_SETUP.md`.
 
 ## Automatic deploy: GitHub Actions
 
@@ -119,7 +119,7 @@ you the DNS didn't resolve. Double-check the value in hPanel.
 - **FTPS handshake failure**: verify Hostinger supports explicit FTPS on port
   21 for this FTP account before changing protocol. Do not silently downgrade
   to plain FTP without documenting the risk.
-- **Contact form warning**: set `WEB3FORMS_ACCESS_KEY` in GitHub Actions
+- **Contact form warning**: set `RESEND_API_KEY` (+ FROM/TO) in GitHub Actions
   secrets. Without it the workflow still deploys, but the client-side guard
   blocks submissions visibly.
 - **Concurrency lock** from a still-running deploy. The `concurrency`
@@ -209,7 +209,7 @@ public domain and/or don't expose secrets server-side.
 |------------------------------|--------------------------------------------|-------------------------------------------------------|
 | `YOUR_UMAMI_WEBSITE_ID`      | `<script data-website-id>` in `index.html` | `stats.capdesis.com` → Settings → Websites → Add site |
 | `YOUR_CF_BEACON_TOKEN`       | `data-cf-beacon` in `index.html`           | Cloudflare → Analytics & Logs → Web Analytics         |
-| `YOUR_WEB3FORMS_ACCESS_KEY`  | `<input name="access_key">` in `index.html`| web3forms.com, enter an email, get the key instantly |
+| `RESEND_API_KEY` / `RESEND_FROM` / `RESEND_TO` | `api/secrets.php` at deploy | Resend dashboard; see `docs/RESEND_SETUP.md` |
 | `jorgesalgadomiranda/30min`  | `href` on `#cal-cta` button in `index.html`| cal.com → Event Types → copy the slug                 |
 
 After plugging them in:
