@@ -55,8 +55,8 @@ env:
 jobs:
   deploy:
     name: FTP upload
-    # public-deploy runner is often offline; deploy-only pool can reach Hostinger FTPS.
-    runs-on: [self-hosted, ci-runner-node, deploy-only]
+    # Hostinger FTPS is public-internet; GitHub-hosted avoids offline self-hosted deploy pools.
+    runs-on: ubuntu-latest
     environment: production
     steps:
       - name: Resolve release context
