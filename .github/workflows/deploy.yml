@@ -222,7 +222,7 @@ jobs:
           fi
           # Contact delivery secrets stay server-side in api/secrets.php (never HTML).
           if [ -n "$RESEND_API_KEY" ] || [ -n "$SMTP_HOST" ]; then
-            python3 -c '
+            python3 <<'PY'
 import os, pathlib, pprint
 secrets = {}
 for key in (
@@ -239,7 +239,7 @@ if "RESEND_TO" not in secrets:
 body = "<?php\n// Generated at deploy — do not commit.\nreturn " + pprint.pformat(secrets, width=100) + ";\n"
 pathlib.Path("api/secrets.php").write_text(body)
 print("Wrote api/secrets.php with keys:", ", ".join(sorted(secrets)))
-'
+PY
             INJECTED="$INJECTED RESEND_OR_SMTP"
           fi
           if [ -z "$INJECTED" ]; then
