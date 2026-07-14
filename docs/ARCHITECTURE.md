@@ -148,9 +148,11 @@ The current dictionary has **202 keys per language**, in perfect parity.
 - Single HTML file, no external CSS/JS to fetch
 - Google Fonts loaded with `media="print" onload` so it doesn't block
   first paint, with a `<noscript>` fallback
-- `preconnect` hints for `fonts.googleapis.com`, `fonts.gstatic.com`,
-  `assets.zyrosite.com`, `capdesis.com`
-- Above-fold portrait uses `loading="eager" fetchpriority="high"`
+- `preconnect` hints for Capdesis image hosts still hotlinked from cards
+  (`capdesis.com`); partner/skill/portrait assets are self-hosted under
+  `assets/` (Zyrosite CDN retired after 2026-07-13 404s)
+- About portrait uses `loading="lazy"` with explicit width/height; self-hosted
+  at `assets/images/foto_perfil.png`
 - Every `<img>` has explicit `width`/`height` to avoid CLS
 - All other images are `loading="lazy" decoding="async"`
 

@@ -163,6 +163,18 @@ jobs:
               sys.exit(1)
           PY
 
+      - name: Guard against Zyrosite / missing local assets
+        run: |
+          set -euo pipefail
+          # Regression for 2026-07-13: partners marquee, skills tech-strip, and
+          # about portrait all 404'd when assets.zyrosite.com died. Refuse to
+          # ship HTML that still hotlinks that CDN or references missing files.
+          python3 scripts/check-asset-integrity.py
+          if grep -R -n 'assets\.zyrosite\.com' --include='*.html' --include='.htaccess' .; then
+            echo "::error::Zyrosite hotlink still present after integrity script."
+            exit 1
+          fi
+
       - name: Cache-bust asset URLs
         env:
           SHA: ${{ steps.release.outputs.release_sha }}
@@ -345,6 +357,16 @@ jobs:
           else
             echo "::warning::Cache-busted HTML returned $HTML_CODE from CI; continuing with asset smoke because Cloudflare may challenge runner HTML requests."
           fi
+          if [ "$HTML_CODE" = "200" ]; then
+            if grep -q 'assets\.zyrosite\.com' /tmp/jsm-index.html; then
+              echo "::error::Live HTML still hotlinks assets.zyrosite.com."
+              exit 1
+            fi
+            grep -q 'assets/images/foto_perfil.png' /tmp/jsm-index.html || {
+              echo "::error::Live HTML missing self-hosted portrait path."
+              exit 1
+            }
+          fi
           URLS=(
             "/robots.txt"
             "/humans.txt"
@@ -357,6 +379,11 @@ jobs:
             "/assets/js/email-validation.js?v=${V}"
             "/assets/js/cookie-banner.js?v=${V}"
             "/assets/logos/kotlin.svg"
+            "/assets/logos/flutter.svg"
+            "/assets/logos/jetpack-compose.svg"
+            "/assets/brands/paypal.svg"
+            "/assets/brands/capdesis.webp"
+            "/assets/images/foto_perfil.png"
             "/fonts/geist.woff2"
             "/assets/cv/Jorge_Salgado_Miranda_CV_EN.pdf"
           )
