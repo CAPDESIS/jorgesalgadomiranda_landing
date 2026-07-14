@@ -4,7 +4,7 @@ Living audit log for `jorgesalgadomiranda.com`. Captures everything
 that has shipped recently, what is in progress, and what is waiting on
 the user so nothing slips between sessions.
 
-Last refreshed: 2026-04-21.
+Last refreshed: 2026-07-13.
 
 ---
 
@@ -19,6 +19,14 @@ Last refreshed: 2026-04-21.
 | WONTDO | Evaluated, decided against, documented so it stops getting re-proposed. |
 
 Priority column: P0 critical, P1 high, P2 medium, P3 nice-to-have.
+
+---
+
+## SHIPPED 2026-07-13
+
+| ID | Priority | Title | Why it mattered |
+|---|---|---|---|
+| T-202 | P0 | Self-host Zyrosite-hotlinked images + deploy integrity guard | `assets.zyrosite.com` returned 404 for portrait, partners marquee, and skills tech-strip (user screenshots in `docs/evidence/image-audit-2026-07-13/`). Vendored under `assets/`, removed CDN from CSP, added `scripts/check-asset-integrity.py` + bun tests + deploy smoke probes. Also repaired broken `deploy.yml` YAML (Resend inject) and moved Hostinger FTP to `ubuntu-latest`. |
 
 ---
 
@@ -75,7 +83,6 @@ Verified live after Cloudflare purge:
 | ID | Priority | Title | Notes |
 |---|---|---|---|
 | T-201 | P3 | Split design tokens into `assets/tokens.css` | `styles.css` is 2723 lines. Tokens live in `:root` and `[data-theme="light"]` blocks. Extracting would shrink the main stylesheet and let other pages (404, CVs, legal) import the same token file. |
-| T-202 | P3 | Self-host the tech logos hotlinked from `assets.zyrosite.com` | CLAUDE.md flags these as legacy-but-stable, user opted out for now. Revisit when the Zyro CDN finally dies. |
 | T-203 | P3 | Replace the timeline expand animation with a CSS `interpolate-size: allow-keywords` implementation once Safari stable ships it | Current `grid-template-rows: 0fr -> 1fr` trick is fine, but `interpolate-size` would let us animate to `auto` with no hack. |
 | T-205 | P3 | Publish an atom feed if a writing section is ever added | Premature until content exists. |
 | T-206 | P2 | Add a `downloads.json` or similar so the Cal.com CTA and CV download can be A/B tested | Only worth doing if we ever want to measure click-through. Today we have Umami and CF Web Analytics watching page views, but not per-CTA conversions. |

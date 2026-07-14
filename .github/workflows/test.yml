@@ -3,6 +3,33 @@ name: test
 on:
   workflow_dispatch:
 
+  pull_request:
+    paths:
+      - "index.html"
+      - ".htaccess"
+      - "assets/**"
+      - "fonts/**"
+      - "api/**"
+      - "legal/**"
+      - "cv/**"
+      - "scripts/check-local-assets.py"
+      - "package.json"
+      - ".github/workflows/test.yml"
+
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - ".htaccess"
+      - "assets/**"
+      - "fonts/**"
+      - "api/**"
+      - "legal/**"
+      - "cv/**"
+      - "scripts/check-local-assets.py"
+      - "package.json"
+      - ".github/workflows/test.yml"
+
   schedule:
     # Local-first policy: PR validation runs on the developer machine too.
     # Remote CI also runs daily so coverage regressions do not sit
@@ -36,6 +63,9 @@ jobs:
 
       - name: Contact API contract tests (Resend mock)
         run: bun run test:contact
+
+      - name: Guard against Zyro CDN and missing local assets
+        run: bun run check:assets
 
       - name: Fail if any em-dash/en-dash slipped into JS or tests
         run: |

@@ -43,24 +43,26 @@ The whole site is one `index.html` with inline `<style>` and `<script>` tags.
   the JS reads both queries before registering cursor/magnetic/tilt
   handlers.
 
-## Hosted assets (CDN hotlinks)
+## Hosted assets
 
-### `assets.zyrosite.com`
-- What: Jorge's existing Zyro CDN from his previous site.
-- Why: contains the personal portrait, brand logos (PayPal, Venmo, Flexera,
-  Tienda UNAM, iOS Lab UNAM, Udemy), and tech stack icons. All are Jorge's
-  own assets, hotlinking is safe.
-- How: every image URL embeds the Cloudflare image-resizing transform
-  (`/cdn-cgi/image/format=auto,w=W,h=H,fit=contain/...`) so the CDN serves
-  the exact pixel size the layout needs.
+### Self-hosted under `assets/`
+Portrait, partner/brand marks, and tech logos ship from this repo:
+- `assets/images/foto_perfil.png`
+- `assets/brands/*` (PayPal, Capdesis, Tienda UNAM, Flexera, Udemy, iOS Lab, Formulae)
+- `assets/logos/*` (Flutter, Swift, Kotlin, Compose, Go, AWS, Docker, K8s, …)
+
+Why: the previous Zyrosite CDN (`assets.zyrosite.com`) started returning
+404 in July 2026 and blanked the partners marquee, skills strip, and
+about portrait (see `docs/evidence/image-audit-2026-07-13/`).
+
+Guard: `scripts/check-asset-integrity.py` + `tests/asset-integrity.test.ts`
+block deploys that reintroduce Zyrosite hotlinks or missing local files.
 
 ### `capdesis.com/images/products/` and `/images/clients/`
-- What: real Capdesis product logos and client brand marks.
-- Why: removes the placeholder monogram look and gives the page real brand
-  identity.
-- How: hotlinked from `<img>` tags in the Capdesis section. Every image
-  has an `onerror` handler that falls back to the two-letter monogram if
-  the URL ever 404s.
+- What: Capdesis product logos and client brand marks.
+- Why: real brand identity on Capdesis cards; each `<img>` has an
+  `onerror` monogram fallback if the URL 404s.
+- How: hotlinked from Capdesis cards (still allowed by CSP `img-src`).
 
 ## Local development tooling
 
