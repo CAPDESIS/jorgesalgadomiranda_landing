@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Tienda UNAM">
+  <rect width="64" height="64" rx="12" fill="#0B3D91"/>
+  <path fill="#F5C518" d="M32 12l4.2 8.5 9.4 1.4-6.8 6.6 1.6 9.3L32 33.5 21.6 37.8l1.6-9.3-6.8-6.6 9.4-1.4L32 12z"/>
+  <text x="32" y="52" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#fff">UNAM</text>
+</svg>
