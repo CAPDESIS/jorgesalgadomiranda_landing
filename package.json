@@ -7,7 +7,9 @@
     "dev": "bunx serve . -l 3000",
     "build": "echo 'Static site, no build step required'",
     "deploy": "bash scripts/deploy.sh",
+    "check:assets": "python3 scripts/check-local-assets.py",
     "test": "bun test --coverage",
+    "test:assets": "python3 scripts/check-asset-integrity.py && bun test tests/asset-integrity.test.ts",
     "test:contact": "php scripts/test-contact-api.php"
   },
   "devDependencies": {
