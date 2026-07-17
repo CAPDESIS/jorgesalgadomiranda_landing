@@ -1,0 +1,1815 @@
+diff --git a/.env.example b/.env.example
+index ab2826f..5ea09ee 100644
+--- a/.env.example
++++ b/.env.example
+@@ -2,15 +2,18 @@
+ FTP_HOST=ftp.jorgesalgadomiranda.com
+ FTP_USER=your-ftp-username
+ FTP_PASS=your-ftp-password
+-FTP_REMOTE_DIR=/public_html
++FTP_REMOTE_DIR=./
++
++# Required for production deploys so the contact form is live.
++WEB3FORMS_ACCESS_KEY=your-web3forms-access-key
++
++# Optional public analytics IDs injected at deploy time.
++UMAMI_WEBSITE_ID=
++CF_BEACON_TOKEN=
++PUBLIC_POSTHOG_KEY=
+ 
+ # Cal.com personal API key (for scripts that manage event types / bookings).
+ # Create at app.cal.com/settings/developer/api-keys. Scope is your own user.
+-# Never paste the real value into committed files; keep it in .env (gitignored).
++# Local-only; no CI workflow reads it today. Never paste the real value into
++# committed files; keep it in .env (gitignored).
+ CAL_API_KEY=your-cal-com-api-key
+-
+-# PostHog Analytics
+-# Get your project API key from: https://us.posthog.com/settings/project
+-# Injected into index.html at deploy time via .github/workflows/deploy.yml
+-PUBLIC_POSTHOG_KEY=
+-PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
+diff --git a/.github/actionlint.yaml b/.github/actionlint.yaml
+new file mode 100644
+index 0000000..acb7d19
+--- /dev/null
++++ b/.github/actionlint.yaml
+@@ -0,0 +1,8 @@
++self-hosted-runner:
++  labels:
++    - self-hosted
++    - public-only
++    - ci-runner-node
++    - deploy-only
++    - policy-light
++    - test-light
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..a16cdac
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,45 @@
++name: CI
++
++on:
++  pull_request:
++    branches: [main]
++  push:
++    branches: [main]
++
++permissions:
++  contents: read
++
++env:
++  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
++
++concurrency:
++  group: jsm-landing-ci-${{ github.ref }}
++  cancel-in-progress: true
++
++jobs:
++  validate:
++    name: Static site validation
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: [self-hosted, public-only, ci-runner-node, test-light]
++    timeout-minutes: 10
++    steps:
++      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
++      - name: Setup Bun
++        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
++        with:
++          bun-version: 1.3.9
++      - name: Validate static site
++        run: bun run lint
++      - name: Validate Python syntax
++        run: python3 -m py_compile scripts/validate-static-site.py
++      - name: Validate local deploy script syntax
++        run: bash -n scripts/deploy.sh
++      - name: Validate release SHA guard fails before deploy
++        run: |
++          set -euo pipefail
++          if RELEASE_SHA=bad FTP_HOST=example.com FTP_USER=user FTP_PASS=pass bash scripts/deploy.sh; then
++            echo "::error::invalid RELEASE_SHA unexpectedly passed"
++            exit 1
++          fi
++      - name: Validate GitHub Actions workflows
++        run: actionlint -config-file .github/actionlint.yaml
+diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml
+index 666df83..8db2ac8 100644
+--- a/.github/workflows/deploy.yml
++++ b/.github/workflows/deploy.yml
+@@ -29,6 +29,10 @@ concurrency:
+   group: deploy-production
+   cancel-in-progress: false
+ 
++permissions:
++  actions: read
++  contents: read
++
+ env:
+   # Force third-party JS actions onto Node 24 before the June 2026 cutoff.
+   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+@@ -73,9 +77,49 @@ jobs:
+           esac
+ 
+       - name: Checkout
+-        uses: actions/checkout@v6
++        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+         with:
+           ref: ${{ inputs.release_sha }}
++          fetch-depth: 0
++
++      - name: Verify release SHA is on main
++        run: |
++          set -euo pipefail
++          git fetch --no-tags origin main
++          release_sha="$(git rev-parse HEAD)"
++          if [ "$release_sha" != "${{ inputs.release_sha }}" ]; then
++            echo "::error::Checked out $release_sha, expected ${{ inputs.release_sha }}."
++            exit 1
++          fi
++          if ! git merge-base --is-ancestor "$release_sha" origin/main; then
++            echo "::error::release_sha must be reachable from origin/main before production deploy."
++            exit 1
++          fi
++
++      - name: Verify required workflows succeeded for release SHA
++        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
++        env:
++          TARGET_SHA: ${{ inputs.release_sha }}
++        with:
++          script: |
++            const { owner, repo } = context.repo;
++            const requiredWorkflows = ["ci.yml", "gitleaks.yml", "release-policy.yml"];
++            for (const workflow_id of requiredWorkflows) {
++              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
++                owner,
++                repo,
++                workflow_id,
++                head_sha: process.env.TARGET_SHA,
++                status: "completed",
++                per_page: 100,
++              });
++              const success = runs.find((run) => run.conclusion === "success");
++              if (!success) {
++                core.setFailed(`No successful ${workflow_id} run found for ${process.env.TARGET_SHA}; promote only a SHA with green validation, secret scan, and release policy.`);
++                return;
++              }
++              core.info(`${workflow_id} success found for ${process.env.TARGET_SHA}: ${success.html_url}`);
++            }
+ 
+       - name: Sanitize FTP host
+         id: host
+@@ -188,18 +232,18 @@ jobs:
+             echo "::error::Could not find the access_key input in index.html; the contact form markup changed."
+             exit 1
+           fi
+-          if [ -n "${WEB3FORMS:-}" ]; then
+-            if printf '%s' "$KEY_LINE" | grep -q 'YOUR_WEB3FORMS_ACCESS_KEY'; then
+-              echo "::error::WEB3FORMS_ACCESS_KEY secret is set but the access_key input still ships the YOUR_WEB3FORMS_ACCESS_KEY placeholder. The contact form would be dead in production. Check the 'Inject production tokens' step."
+-              exit 1
+-            fi
+-            echo "Contact form access key injected; placeholder is gone."
+-          else
+-            echo "::warning::WEB3FORMS_ACCESS_KEY is not configured. The contact form will ship the placeholder, so the client-side guard blocks every submission and shows the visitor a visible error status. Set the secret under Settings > Secrets and variables > Actions, then redeploy."
++          if [ -z "${WEB3FORMS:-}" ]; then
++            echo "::error::WEB3FORMS_ACCESS_KEY is not configured. Refusing to deploy a production landing with a dead contact form."
++            exit 1
++          fi
++          if printf '%s' "$KEY_LINE" | grep -q 'YOUR_WEB3FORMS_ACCESS_KEY'; then
++            echo "::error::WEB3FORMS_ACCESS_KEY secret is set but the access_key input still ships the YOUR_WEB3FORMS_ACCESS_KEY placeholder. The contact form would be dead in production. Check the 'Inject production tokens' step."
++            exit 1
+           fi
++          echo "Contact form access key injected; placeholder is gone."
+ 
+       - name: Deploy via FTPS
+-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
++        uses: SamKirkland/FTP-Deploy-Action@8e83cea8672e3fbcbb9fdafff34debf6ae4c5f65 # v4.3.5
+         with:
+           server: ${{ steps.host.outputs.host }}
+           username: ${{ secrets.FTP_USER }}
+@@ -209,6 +253,7 @@ jobs:
+           # nesting (previous runs landed files at public_html/public_html/).
+           server-dir: ./
+           protocol: ftps
++          security: strict
+           port: 21
+           timeout: 60000
+           log-level: standard
+diff --git a/.github/workflows/gitleaks.yml b/.github/workflows/gitleaks.yml
+index e62e754..27e81ff 100644
+--- a/.github/workflows/gitleaks.yml
++++ b/.github/workflows/gitleaks.yml
+@@ -18,19 +18,25 @@ jobs:
+     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+     runs-on: [self-hosted, public-only, ci-runner-node, test-light]
+     steps:
+-      - uses: actions/checkout@v6
++      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+         with:
+           fetch-depth: 0
+       - name: Install gitleaks
+         run: |
+-          GITLEAKS_VERSION="8.24.0"
+-          wget -qO- "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar xz
++          set -euo pipefail
++          GITLEAKS_VERSION="8.30.1"
++          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
++          archive_sha256="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
++          base_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
++          curl -fsSL -o "$archive" "${base_url}/${archive}"
++          printf '%s  %s\n' "$archive_sha256" "$archive" | sha256sum -c -
++          tar xzf "$archive"
+           chmod +x gitleaks
+       - name: Run gitleaks
+         run: ./gitleaks detect --source . --config .gitleaks.toml --report-format sarif --report-path gitleaks.sarif --exit-code 1
+       - name: Upload SARIF
+         if: always()
+         continue-on-error: true
+-        uses: github/codeql-action/upload-sarif@v3
++        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357
+         with:
+           sarif_file: gitleaks.sarif
+diff --git a/.github/workflows/release-policy.yml b/.github/workflows/release-policy.yml
+index 8ddc2be..8070e82 100644
+--- a/.github/workflows/release-policy.yml
++++ b/.github/workflows/release-policy.yml
+@@ -2,20 +2,15 @@ name: Release Policy
+ 
+ on:
+   pull_request:
+-    paths:
+-      - '.github/workflows/**'
+-      - 'docs/**'
+   push:
+     branches: [main]
+-    paths:
+-      - '.github/workflows/**'
+-      - 'docs/**'
+   workflow_dispatch:
+ 
+ jobs:
+   audit:
+     name: Audit release gates
+-    runs-on: [self-hosted, public-only, ci-runner-node, test-light]
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: [self-hosted, public-only, ci-runner-node, policy-light]
+     permissions:
+       contents: read
+ 
+@@ -27,11 +22,11 @@ jobs:
+             exit 1
+           fi
+ 
+-      - uses: actions/checkout@v4
++      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+ 
+       - name: Audit workflows
+         env:
+-          ENFORCE: 'false'
++          ENFORCE: 'true'
+           PRODUCTION_DAY: 'monday'
+         run: |
+           set -euo pipefail
+diff --git a/.gitleaks.toml b/.gitleaks.toml
+index d22349b..7dca131 100644
+--- a/.gitleaks.toml
++++ b/.gitleaks.toml
+@@ -1,7 +1,6 @@
+ [allowlist]
+ description = "Allowlist for known safe patterns"
+ paths = [
+-  '''(^|/)\.env\.example$''',
+   '''(^|/)node_modules(/|$)''',
+   '''(^|/)\.git(/|$)''',
+   '''(^|/)vendor(/|$)''',
+diff --git a/.htaccess b/.htaccess
+index ea8dcd3..ce82345 100644
+--- a/.htaccess
++++ b/.htaccess
+@@ -48,7 +48,7 @@
+ <FilesMatch "^\.(git|env|htaccess|htpasswd)">
+   Require all denied
+ </FilesMatch>
+-<FilesMatch "^(package\.json|bun\.lockb|package-lock\.json|README\.md|og\.html|CLAUDE\.md)$">
++<FilesMatch "(\.(md|markdown)$|^(package\.json|bun\.lockb|package-lock\.json|og\.html)$)">
+   Require all denied
+ </FilesMatch>
+ 
+diff --git a/404.html b/404.html
+index 44bdb78..37e79fa 100644
+--- a/404.html
++++ b/404.html
+@@ -3,7 +3,7 @@
+   ─────────────────────────────────────────────────────────────
+   Jorge Salgado Miranda · 404 page
+   Originally built at https://jorgesalgadomiranda.com/
+-  Source: https://github.com/chochy2001/jorgesalgadomiranda_landing
++  Source: https://github.com/CAPDESIS/jorgesalgadomiranda_landing
+   Free to fork. Attribution appreciated.
+   ─────────────────────────────────────────────────────────────
+ -->
+@@ -250,7 +250,7 @@
+     <h1 class="hero">4<em>0</em>4</h1>
+ 
+     <p class="msg">This page slipped through the cracks.</p>
+-    <p class="msg-es">Esta página se perdió.</p>
++    <p class="msg-es" lang="es">Esta página se perdió.</p>
+ 
+     <nav class="links" aria-label="404 recovery">
+       <a class="link primary" href="/">
+@@ -258,7 +258,7 @@
+         <span class="lang">EN</span>
+       </a>
+       <a class="link" href="/">
+-        <span>&larr; Volver al inicio</span>
++        <span lang="es">&larr; Volver al inicio</span>
+         <span class="lang">ES</span>
+       </a>
+       <a class="link" href="/cv/Jorge_Salgado_Miranda_CV_EN.html">
+diff --git a/MASTER_SPEC.md b/MASTER_SPEC.md
+new file mode 100644
+index 0000000..ed1c7fd
+--- /dev/null
++++ b/MASTER_SPEC.md
+@@ -0,0 +1,79 @@
++# jorgesalgadomiranda_landing Master Spec
++
++Last evidence pass: 2026-06-29.
++
++This file documents the current static portfolio/lead-generation site at
++`jorgesalgadomiranda.com`.
++
++## Verified Scope
++
++- Product: personal portfolio for Jorge Salgado Miranda and lead-generation
++  surface for architecture, security, performance, and cost audits.
++- Runtime: static files hosted on Hostinger.
++- Primary page: `index.html`.
++- Supporting assets: `cv/`, `assets/`, `fonts/`, `robots.txt`, `sitemap.xml`,
++  `.htaccess`, `og.html`, and `og.png`.
++- No framework runtime and no build pipeline are required for the main site.
++
++## Stack Evidence
++
++- `package.json`: private package with `dev`, `build`, and `deploy` scripts.
++  `build` runs the static-site validator through `bun run lint`; there is no
++  asset bundling step for the main site.
++- `README.md`: single-file static site, bilingual dictionaries, theme toggles,
++  CV/PDF assets, Web3Forms, Cal.com, Umami, Cloudflare Web Analytics, SEO, and
++  `.htaccess` security headers.
++- `docs/DEPLOY.md`: Hostinger deployment through manual GitHub Actions
++  `release_sha` promotion or local `RELEASE_SHA` fallback.
++
++## Source Of Truth
++
++- Product and repo layout: `README.md`.
++- Deploy flow: `docs/DEPLOY.md`.
++- Architecture and technology rationale: `docs/ARCHITECTURE.md` and
++  `docs/TECHNOLOGIES.md`.
++- Manual provider setup: `docs/MANUAL_SETUP.md`.
++- Changelog: `docs/CHANGELOG.md`.
++
++## Deployment Rules
++
++- Production deploy is manual SHA promotion.
++- GitHub Actions workflow requires exact `release_sha`, verifies the checkout,
++  verifies `origin/main` ancestry, requires green CI, gitleaks, and release
++  policy runs for that SHA, injects public deploy-time tokens, and uploads over
++  explicit FTPS on port 21.
++- The manual promotion also requires a Monday window in `America/Mexico_City`
++  unless `emergency_override=true` is explicitly approved, plus operator
++  confirmations for staging health, monitoring, and backup/data applicability.
++- Local fallback requires `RELEASE_SHA`, verifies `origin/main` ancestry, creates
++  a temporary `git archive`, injects the required contact-form key, and uploads
++  that archived source tree with `lftp` over FTPS.
++- Do not deploy a dirty working directory or arbitrary branch.
++
++## Public Token Rules
++
++- Public analytics/contact tokens may be injected at deploy time.
++- Do not commit private FTP credentials or `.env` files.
++- `WEB3FORMS_ACCESS_KEY` is required for production. GitHub Actions and the
++  local fallback fail closed instead of publishing a dead contact form.
++
++## Validation Commands
++
++```bash
++bun run build
++python3 -m http.server 8765 --bind 127.0.0.1
++bash -n scripts/deploy.sh
++RELEASE_SHA=bad FTP_HOST=example.com FTP_USER=u FTP_PASS=p bash scripts/deploy.sh
++ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f) }' .github/workflows/deploy.yml
++actionlint -config-file .github/actionlint.yaml .github/workflows/*.yml
++git diff --check
++```
++
++The invalid `RELEASE_SHA` command must fail before any FTP connection.
++
++## Known Open Items
++
++- Production token presence is environment-specific. Verify GitHub secrets and
++  public runtime behavior before claiming live lead-generation readiness.
++- Hostinger has no per-file rollback. Rollback is a redeploy of a known-good
++  commit SHA.
+diff --git a/README.md b/README.md
+index 54269db..803f506 100644
+--- a/README.md
++++ b/README.md
+@@ -4,9 +4,17 @@ Personal portfolio of **Jorge Salgado Miranda**, Software Architect
+ specialized in mobile, web and security. Senior Engineer at PayPal /
+ Venmo, CEO of Capdesis, instructor to 54,000+ developers on Udemy.
+ 
+-Live at [**jorgesalgadomiranda.com**](https://jorgesalgadomiranda.com/).
++Deployed at [**jorgesalgadomiranda.com**](https://jorgesalgadomiranda.com/).
++Fresh runtime, secrets, and public lead-gen readiness must be revalidated in
++`MASTER_SPEC.md` before this repo claims production-ready status.
+ 
+-> A single-file, zero-build, bilingual, dual-theme portfolio that
++Audit note 2026-06-29: CI/static-validation support files in this checkout are
++still local draft/untracked (`.github/workflows/ci.yml`,
++`.github/actionlint.yaml`, `scripts/validate-static-site.py`, and
++`MASTER_SPEC.md`). Treat `bun run lint` and the workflow as local evidence only
++until those files are tracked and pushed.
++
++> A static, zero-runtime, bilingual, dual-theme portfolio that
+ > doubles as a lead-gen surface for architecture, security,
+ > performance and cost audits.
+ 
+@@ -18,11 +26,11 @@ Most portfolio templates stop at "hero + projects + contact form". This
+ one is a complete launch kit with things that are rarely considered on
+ other personal sites:
+ 
+-- **Zero build step, zero runtime.** One `index.html` (~180 KB),
+-  inline CSS + inline JS, self-hosted woff2 fonts. No bundler, no
+-  framework, no Node runtime. Ships as a static file over FTP.
++- **Zero bundle step, zero runtime.** One static `index.html` plus
++  `assets/styles.css`, `assets/i18n.js`, and self-hosted woff2 fonts.
++  No framework runtime and no Node server. Ships as static files over FTP.
+ - **Bilingual with enforced parity.** ES + EN i18n dictionaries with
+-  258 keys each, a Python parity check, and a token system
++  341 keys each, a Python parity check, and a token system
+   (`{{yearsSince:YYYY}}`) so tenure copy re-computes itself every new
+   year.
+ - **Dual-theme OKLCH design system.** Theme + language toggles
+@@ -38,27 +46,30 @@ other personal sites:
+   offer, Web3Forms contact form with honeypot + RFC5322 regex +
+   ~70-entry disposable-email blocklist, Cal.com CTA, Capdesis tier
+   card for corporate invoicing.
+-- **Analytics built for privacy.** Umami (self-hosted) plus Cloudflare
+-  Web Analytics, no cookies, no consent banner needed.
++- **Analytics built for privacy.** Umami (self-hosted), Cloudflare Web
++  Analytics, and optional PostHog are guarded by the consent flow before
++  third-party analytics initialize.
+ - **SEO that actually shows up.** hreflang `es-MX`/`en`/`x-default`,
+   canonical, `sitemap.xml`, `ProfessionalService` JSON-LD with a full
+   `OfferCatalog`, `WebSite` schema, open `robots.txt` for the AI answer
+   engines (GPT, Claude, Perplexity) that recommend experts today.
+-- **Security headers.** `.htaccess` with HSTS, CSP, X-Frame-Options,
+-  Referrer-Policy, Permissions-Policy, gzip, immutable font cache,
+-  plus Cloudflare at the edge for DDoS + bot fight mode.
++- **Security headers.** `.htaccess` configures HSTS, CSP,
++  X-Frame-Options, Referrer-Policy, Permissions-Policy, gzip,
++  immutable font cache, plus Cloudflare at the edge for DDoS + bot
++  fight mode. Verify headers against the deployed host before release
++  claims.
+ - **Year-aware stats.** `data-years-since` spans and JS-bound spans so
+   tenure counters, copyright and CV footers never go stale.
+-- **CI deploy to Hostinger.** GitHub Actions workflow with FTP host
+-  sanitization, DNS preflight check, and a manual `lftp` fallback for
+-  when CI billing lapses.
++- **SHA-gated deploy to Hostinger.** GitHub Actions workflow with FTP
++  host sanitization, DNS preflight check, and a manual `lftp` fallback
++  that deploys from a verified `git archive`.
+ - **Accessibility first.** Skip link, `:focus-visible` rings,
+   `aria-pressed` toggles, motion / pointer-coarse gates for cursor and
+   tilt effects, explicit `width`/`height` on every image.
+ 
+ ---
+ 
+-## Live demo
++## Deployed URL smoke
+ 
+ Open [jorgesalgadomiranda.com](https://jorgesalgadomiranda.com/) and
+ try:
+@@ -77,7 +88,7 @@ try:
+ ## Quick start (local preview)
+ 
+ ```bash
+-git clone https://github.com/chochy2001/jorgesalgadomiranda_landing.git
++git clone https://github.com/CAPDESIS/jorgesalgadomiranda_landing.git
+ cd jorgesalgadomiranda_landing
+ python3 -m http.server 8765 --bind 127.0.0.1
+ open http://127.0.0.1:8765/
+@@ -86,8 +97,8 @@ open http://127.0.0.1:8765/
+ No dependencies, no `npm install`. If you prefer bun:
+ 
+ ```bash
+-bun run dev      # same as above, wraps python3's http.server
+-bun run deploy   # manual FTP upload via scripts/deploy.sh (needs .env)
++bun run dev      # serves the static site on http://localhost:3000
++RELEASE_SHA=$(git rev-parse origin/main) bun run deploy   # manual FTP fallback (needs .env)
+ ```
+ 
+ ---
+@@ -141,7 +152,9 @@ template. Credit is how this stays sustainable.
+ 
+ ```
+ jorgesalgadomiranda_landing/
+-├── index.html                           Self-contained landing (inline CSS + JS + i18n)
++├── index.html                           Static landing shell and inline critical guards
++├── assets/styles.css                    Main stylesheet
++├── assets/i18n.js                       ES/EN dictionary and language behavior
+ ├── og.html, og.png                      Source + rendered Open Graph card
+ ├── robots.txt                           Crawl policy (open to AI answer engines)
+ ├── sitemap.xml                          hreflang es-MX / en
+@@ -154,7 +167,7 @@ jorgesalgadomiranda_landing/
+ │   └── cv/                              Rendered PDFs (built by scripts/build-cv-pdfs.sh)
+ ├── fonts/                               Self-hosted woff2 (Instrument Serif, Geist, Geist Mono)
+ ├── scripts/
+-│   ├── deploy.sh                        Manual FTP deploy (lftp + .env)
++│   ├── deploy.sh                        SHA-gated manual FTP deploy (lftp + .env)
+ │   └── build-cv-pdfs.sh                 Headless Chromium PDF builder
+ ├── docs/
+ │   ├── ARCHITECTURE.md                  Page structure, design tokens, JS modules
+@@ -163,7 +176,8 @@ jorgesalgadomiranda_landing/
+ │   ├── MANUAL_SETUP.md                  Dashboard-only action checklist
+ │   ├── CHANGELOG.md                     What shipped, when, why
+ │   └── CERTIFICATIONS.md                Cert path rationale
+-├── .github/workflows/deploy.yml         CI FTP deploy to Hostinger
++├── .github/workflows/ci.yml             Static validation draft for push/PR once tracked
++├── .github/workflows/deploy.yml         Manual SHA-gated FTP deploy to Hostinger
+ └── README.md                            This file
+ ```
+ 
+@@ -203,7 +217,13 @@ togglable, persisted.
+   hreflang, canonical, OpenGraph + Twitter Card, `sitemap.xml`,
+   `robots.txt`.
+ - **Security**: `.htaccess` headers + Cloudflare edge.
+-- **CI**: GitHub Actions with `SamKirkland/FTP-Deploy-Action`.
++- **CI**: local draft GitHub Actions static validation (`bun run lint`, script
++  syntax, actionlint guards). As of 2026-06-29, the CI workflow and validator
++  support files must still be tracked before this is a clean-checkout gate.
++  Production deploy is a guarded manual FTPS workflow: it
++  requires green `ci.yml`, `gitleaks.yml`, and `release-policy.yml` runs for the
++  target SHA, rewrites asset URLs for cache-busting, and injects production
++  tokens only from GitHub Secrets at deploy time.
+ 
+ Full reasoning for each choice is in
+ [`docs/TECHNOLOGIES.md`](docs/TECHNOLOGIES.md).
+@@ -212,14 +232,18 @@ Full reasoning for each choice is in
+ 
+ ## Deploying your fork
+ 
+-1. Point `FTP_HOST`, `FTP_USER`, `FTP_PASSWORD` secrets at your own
+-   host in GitHub Actions settings.
++1. Point `FTP_HOST`, `FTP_USER`, `FTP_PASSWORD`, and
++   `WEB3FORMS_ACCESS_KEY` secrets at your own values in GitHub Actions
++   settings.
+ 2. Review `.github/workflows/deploy.yml`. If your host is not
+    Hostinger, adjust `server-dir` (Hostinger FTP users are chrooted to
+    `public_html/`, so `./` is correct there).
+-3. Push to `main`. CI uploads over FTPS on port 21.
+-4. Fallback: `cp .env.example .env`, fill in credentials, then
+-   `bash scripts/deploy.sh`.
++3. Trigger the deploy workflow manually with a full 40-character
++   `release_sha` that is contained in `origin/main`. CI uploads over
++   FTPS on port 21 after the release gates pass.
++4. Fallback: `cp .env.example .env`, fill in local `FTP_HOST`,
++   `FTP_USER`, `FTP_PASS`, and `WEB3FORMS_ACCESS_KEY`, then run
++   `RELEASE_SHA=<40-char-main-sha> bun run deploy`.
+ 
+ Full deploy doc: [`docs/DEPLOY.md`](docs/DEPLOY.md).
+ 
+@@ -227,19 +251,20 @@ Full deploy doc: [`docs/DEPLOY.md`](docs/DEPLOY.md).
+ 
+ ## Configuration placeholders
+ 
+-Before going live, replace these in `index.html`:
++Before going live, keep these placeholders committed and configure their
++deploy-time values as GitHub Actions secrets or local `.env` values:
+ 
+-| Placeholder                 | Source                                |
++| Placeholder / value         | Deploy variable / source              |
+ |-----------------------------|---------------------------------------|
+-| `YOUR_UMAMI_WEBSITE_ID`     | Your Umami dashboard → Websites → Add |
+-| `YOUR_CF_BEACON_TOKEN`      | Cloudflare → Analytics → Web Analytics |
+-| `YOUR_WEB3FORMS_ACCESS_KEY` | web3forms.com (free, no signup)       |
+-| `jorgesalgadomiranda/30min` | Your Cal.com event type slug          |
+-
+-The contact form refuses to submit while placeholders remain, so you
+-will see a clear error until configured. Details in
+-[`docs/MANUAL_SETUP.md`](docs/MANUAL_SETUP.md) (gitignored, template
+-copy in the fork).
++| `YOUR_UMAMI_WEBSITE_ID`     | `UMAMI_WEBSITE_ID`                    |
++| `YOUR_CF_BEACON_TOKEN`      | `CF_BEACON_TOKEN`                     |
++| `YOUR_WEB3FORMS_ACCESS_KEY` | `WEB3FORMS_ACCESS_KEY` (required)     |
++| `YOUR_POSTHOG_KEY`          | `PUBLIC_POSTHOG_KEY`                  |
++| `jorgesalgadomiranda/30min` | Cal.com event type slug in `index.html` |
++
++The contact form refuses to submit while the Web3Forms placeholder remains.
++Both GitHub Actions production deploy and the local fallback now refuse to
++publish unless `WEB3FORMS_ACCESS_KEY` has been injected.
+ 
+ ---
+ 
+diff --git a/assets/i18n.js b/assets/i18n.js
+index 8b719fa..319b1d5 100644
+--- a/assets/i18n.js
++++ b/assets/i18n.js
+@@ -206,13 +206,13 @@ const I18N = {
+     "eng.card3.tag": "Foundation",
+     "eng.card3.title": "Infrastructure you can sleep through",
+     "eng.card3.p1": "Multi-host architecture on private mesh networking, zero-trust admin planes",
+-    "eng.card3.p2": "Edge routing with automated wildcard TLS, no manual certificate work, ever",
++    "eng.card3.p2": "Edge routing and managed TLS patterns that reduce manual certificate work",
+     "eng.card3.p3": "Containerized databases, cache, object storage and dashboards, reproducible from a single file",
+     "eng.card4.tag": "Posture",
+     "eng.card4.title": "Security from design to runtime",
+     "eng.card4.p1": "Threat modeling done on the architecture, not bolted on later",
+     "eng.card4.p2": "Secret scanning on every commit, encrypted service-to-service traffic, private admin planes",
+-    "eng.card4.p3": "<strong>OAuth 2.0</strong>, <strong>JWT</strong>, biometric auth and mTLS implemented to spec and audited",
++    "eng.card4.p3": "<strong>OAuth 2.0</strong>, <strong>JWT</strong>, platform authentication and service-to-service protection implemented when the product scope requires them",
+     "eng.card5.tag": "Velocity",
+     "eng.card5.title": "Pipelines that move with the team",
+     "eng.card5.p1": "Smart CI: only the changed modules run, the rest skip, fast feedback every push",
+diff --git a/cv/Jorge_Salgado_Miranda_CV_EN.html b/cv/Jorge_Salgado_Miranda_CV_EN.html
+index 36ecf01..5d33a5e 100644
+--- a/cv/Jorge_Salgado_Miranda_CV_EN.html
++++ b/cv/Jorge_Salgado_Miranda_CV_EN.html
+@@ -8,6 +8,9 @@
+ <meta name="description" content="CV of Jorge Salgado Miranda, Senior Software Architect: mobile (iOS, Android, Flutter), backend (Go, AWS), architecture and security. PayPal/Venmo, Capdesis, UNAM." />
+ <meta name="robots" content="index, follow" />
+ <link rel="canonical" href="https://jorgesalgadomiranda.com/cv/Jorge_Salgado_Miranda_CV_EN.html" />
++<link rel="alternate" hreflang="es-MX" href="https://jorgesalgadomiranda.com/cv/Jorge_Salgado_Miranda_CV_ES.html" />
++<link rel="alternate" hreflang="en" href="https://jorgesalgadomiranda.com/cv/Jorge_Salgado_Miranda_CV_EN.html" />
++<link rel="alternate" hreflang="x-default" href="https://jorgesalgadomiranda.com/cv/Jorge_Salgado_Miranda_CV_EN.html" />
+ <link rel="preload" href="../fonts/instrument-serif.woff2" as="font" type="font/woff2" crossorigin />
+ <link rel="preload" href="../fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
+ <!-- CV-specific favicon (document glyph, intentionally distinct from main site "js" monogram) -->
+@@ -206,7 +209,8 @@ h2.section {
+   gap: 8px;
+   z-index: 10;
+ }
+-.toolbar button {
++.toolbar button,
++.toolbar a {
+   font-family: 'Geist Mono', monospace;
+   font-size: 11px;
+   padding: 8px 12px;
+@@ -214,13 +218,16 @@ h2.section {
+   background: white;
+   border-radius: 6px;
+   cursor: pointer;
++  color: inherit;
++  display: inline-block;
++  text-decoration: none;
+ }
+ </style>
+ </head>
+ <body>
+ <div class="toolbar no-print">
+   <button onclick="window.print()">Print / Save as PDF</button>
+-  <a href="../index.html" style="text-decoration:none;color:inherit"><button>← Back</button></a>
++  <a href="../index.html">← Back</a>
+ </div>
+ 
+ <article class="sheet">
+diff --git a/cv/Jorge_Salgado_Miranda_CV_ES.html b/cv/Jorge_Salgado_Miranda_CV_ES.html
+index 0aaa870..b27db8b 100644
+--- a/cv/Jorge_Salgado_Miranda_CV_ES.html
++++ b/cv/Jorge_Salgado_Miranda_CV_ES.html
+@@ -8,6 +8,9 @@
+ <meta name="description" content="CV de Jorge Salgado Miranda, Arquitecto de Software Senior: mobile (iOS, Android, Flutter), backend (Go, AWS), arquitectura y seguridad. PayPal/Venmo, Capdesis, UNAM." />
+ <meta name="robots" content="index, follow" />
+ <link rel="canonical" href="https://jorgesalgadomiranda.com/cv/Jorge_Salgado_Miranda_CV_ES.html" />
++<link rel="alternate" hreflang="es-MX" href="https://jorgesalgadomiranda.com/cv/Jorge_Salgado_Miranda_CV_ES.html" />
++<link rel="alternate" hreflang="en" href="https://jorgesalgadomiranda.com/cv/Jorge_Salgado_Miranda_CV_EN.html" />
++<link rel="alternate" hreflang="x-default" href="https://jorgesalgadomiranda.com/cv/Jorge_Salgado_Miranda_CV_EN.html" />
+ <link rel="preload" href="../fonts/instrument-serif.woff2" as="font" type="font/woff2" crossorigin />
+ <link rel="preload" href="../fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
+ <!-- Favicon específico del CV (icono de documento, intencionalmente distinto del "js" del sitio principal) -->
+@@ -204,7 +207,8 @@ h2.section {
+   gap: 8px;
+   z-index: 10;
+ }
+-.toolbar button {
++.toolbar button,
++.toolbar a {
+   font-family: 'Geist Mono', monospace;
+   font-size: 11px;
+   padding: 8px 12px;
+@@ -212,13 +216,16 @@ h2.section {
+   background: white;
+   border-radius: 6px;
+   cursor: pointer;
++  color: inherit;
++  display: inline-block;
++  text-decoration: none;
+ }
+ </style>
+ </head>
+ <body>
+ <div class="toolbar no-print">
+   <button onclick="window.print()">Imprimir / Guardar PDF</button>
+-  <a href="../index.html" style="text-decoration:none;color:inherit"><button>← Volver</button></a>
++  <a href="../index.html">← Volver</a>
+ </div>
+ 
+ <article class="sheet">
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 60ee88a..5b0cb39 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1,13 +1,14 @@
+ # Architecture
+ 
+-The site is **one self-contained HTML file** with inline CSS, JavaScript, and
+-i18n dictionaries. No build step, no bundler, no framework. The file size is
+-roughly 150 KB before image assets and font requests.
++The site is a static portfolio made of `index.html`, `assets/styles.css`,
++`assets/i18n.js`, CV pages/PDFs, local fonts, and SEO/security files. There is
++no bundler, framework runtime, or server process.
+ 
+-The decision to keep everything in one file is deliberate. It eliminates a
+-class of issues (cache desync, asset 404s, build server downtime) that
+-plagued the original Zyro template the site grew out of. Anyone can open
+-`index.html` in a browser and see the same thing the production server serves.
++The decision to keep the runtime static is deliberate. It eliminates build
++server downtime and server-side release drift while still letting CSS and i18n
++live in first-party cacheable files. Anyone can serve the repo root with a
++basic static server and see the same file graph production serves after
++deploy-time token injection.
+ 
+ ## Page structure
+ 
+@@ -15,7 +16,7 @@ plagued the original Zyro template the site grew out of. Anyone can open
+ <html data-theme="dark|light" data-lang="es|en">
+   <head>
+     SEO meta, JSON-LD Person schema, Open Graph, Twitter card,
+-    favicon (data URI SVG), Google Fonts (non-blocking)
++    favicon (data URI SVG), local font preloads, first-party CSS
+   </head>
+   <body>
+     <a class="skip-link" href="#main">Skip to content</a>
+@@ -47,8 +48,8 @@ plagued the original Zyro template the site grew out of. Anyone can open
+ 
+     <footer>…</footer>
+ 
+-    <script>I18N = { en: {…}, es: {…} }; Object.freeze(I18N);</script>
+-    <script>main app: theme, lang, cursor, magnetic, tilt, reveal, scroll</script>
++    <script src="assets/i18n.js"></script>
++    <script>main app: consent, theme, lang, cursor, magnetic, tilt, reveal, scroll</script>
+   </body>
+ </html>
+ ```
+@@ -79,8 +80,8 @@ Light theme overrides only the color tokens, keeps everything else identical.
+ 
+ ## JavaScript modules
+ 
+-The single inline `<script>` block runs on `DOMContentLoaded` and sets up
+-seven small modules in this order. Each one is independent.
++`assets/i18n.js` exposes the frozen ES/EN dictionaries. The inline app script
++runs on `DOMContentLoaded` and sets up small independent modules.
+ 
+ 1. **Copyright year**: sets the footer year from `new Date().getFullYear()`
+    so it never goes stale.
+@@ -107,7 +108,7 @@ seven small modules in this order. Each one is independent.
+ 
+ ## i18n
+ 
+-The dictionary lives inline in the same file:
++The dictionary lives in `assets/i18n.js`:
+ 
+ ```js
+ const I18N = {
+@@ -128,7 +129,8 @@ renders correctly even if JavaScript fails or `localStorage` is unavailable.
+ The dictionaries are frozen so an attacker cannot mutate
+ `window.__I18N__` from another script in the page.
+ 
+-The current dictionary has **202 keys per language**, in perfect parity.
++The current dictionary has **341 keys per language**, and
++`scripts/validate-static-site.py` fails if ES/EN keys drift.
+ 
+ ## Accessibility
+ 
+@@ -145,11 +147,11 @@ The current dictionary has **202 keys per language**, in perfect parity.
+ 
+ ## Performance
+ 
+-- Single HTML file, no external CSS/JS to fetch
+-- Google Fonts loaded with `media="print" onload` so it doesn't block
+-  first paint, with a `<noscript>` fallback
+-- `preconnect` hints for `fonts.googleapis.com`, `fonts.gstatic.com`,
+-  `assets.zyrosite.com`, `capdesis.com`
++- Static first-party CSS and i18n files, cache-busted at deploy with the
++  promoted commit SHA
++- Self-hosted woff2 fonts with `preload` hints for the critical serif/sans
++  faces
++- `preconnect` hints for the external image/analytics hosts used at runtime
+ - Above-fold portrait uses `loading="eager" fetchpriority="high"`
+ - Every `<img>` has explicit `width`/`height` to avoid CLS
+ - All other images are `loading="lazy" decoding="async"`
+diff --git a/docs/DEPLOY.md b/docs/DEPLOY.md
+index 1870aba..be0cd08 100644
+--- a/docs/DEPLOY.md
++++ b/docs/DEPLOY.md
+@@ -1,23 +1,27 @@
+ # Deploy
+ 
+-The site is hosted on Hostinger and deploys two ways, both via FTP:
++The site is hosted on Hostinger and deploys two ways, both over FTPS/TLS using
++the Hostinger FTP account:
+ 
+-1. **Automatic** on every push to `main` via GitHub Actions (preferred).
+-2. **Manual** from your laptop via `bun run deploy` (fallback if Actions
+-   billing is paused or you want to test before pushing).
++1. **Manual GitHub Actions promotion** from an exact `release_sha`
++   contained in `origin/main` (preferred).
++2. **Manual local fallback** from your laptop via
++   `RELEASE_SHA=<40-char-main-sha> bun run deploy` if Actions billing is
++   paused.
+ 
+-## Automatic deploy: GitHub Actions
++## GitHub Actions deploy
+ 
+ ### Setup (once)
+ 
+-Go to `github.com/chochy2001/jorgesalgadomiranda_landing/settings/secrets/actions`
+-and create these **four repository secrets**:
++Go to `github.com/CAPDESIS/jorgesalgadomiranda_landing/settings/secrets/actions`
++and create these **required repository secrets**:
+ 
+ | Secret name        | Example value        | Notes                                     |
+ |--------------------|----------------------|-------------------------------------------|
+ | `FTP_HOST`         | `ftp.jorgesalgadomiranda.com` or `files.hostinger.com` | Same value you'd put in an FTP client |
+ | `FTP_USER`         | `u1234567`           | Hostinger panel > Files > FTP Accounts     |
+ | `FTP_PASSWORD`     | `your-real-password` | Password from the same panel               |
++| `WEB3FORMS_ACCESS_KEY` | `your-web3forms-key` | Required so production never ships a dead contact form |
+ 
+ > `FTP_REMOTE_DIR` is **no longer required**. Hostinger's FTP user is
+ > chrooted to `public_html/`, so the workflow uploads to `./` at the
+@@ -27,19 +31,47 @@ and create these **four repository secrets**:
+ Exact names matter. The workflow at `.github/workflows/deploy.yml` reads
+ them as `${{ secrets.FTP_HOST }}`, etc.
+ 
++Audit note 2026-06-29: the tracked deploy workflow requires a successful
++`ci.yml` run, but `.github/workflows/ci.yml`, `.github/actionlint.yaml`,
++`scripts/validate-static-site.py`, and `MASTER_SPEC.md` are still local
++draft/untracked in this checkout. Treat GitHub Actions production promotion as
++blocked, or not clean-checkout reproducible, until that CI validator set is
++tracked and pushed or the deploy gate is intentionally revised.
++
+ ### How it runs
+ 
+-Every push to `main` triggers the workflow. You can also trigger it
+-manually from the Actions tab using the "Run workflow" button (the
+-workflow is registered with `workflow_dispatch`).
++The workflow is `workflow_dispatch` only. Trigger it from the Actions tab
++with a full 40-character `release_sha` that has passed staging/smoke and
++is contained in `origin/main`.
++
++Required manual inputs:
++
++| Input | Required value |
++|-------|----------------|
++| `release_sha` | exact 40-character commit SHA contained in `origin/main` |
++| `confirm_staging_green` | `yes` after staging/smoke validation |
++| `confirm_no_p0_p1_alerts` | `yes` after central monitoring is clear |
++| `confirm_backup_ready` | `yes` or `n/a` when the release touches no data |
++| `emergency_override` | `false` for normal releases; `true` only for explicitly approved emergency deploys outside Monday |
+ 
+ Flow:
+-1. `actions/checkout@v4` pulls the repo.
+-2. `SamKirkland/FTP-Deploy-Action@v4.3.5` mirrors the working tree to the
+-   FTP server on port 21 (plain FTP; Hostinger doesn't offer FTPS).
+-3. The action uses the same exclude list as the local deploy script, so
++1. The workflow enforces the Monday production window in
++   `America/Mexico_City`, unless `emergency_override=true`.
++2. `actions/checkout@v6` checks out `release_sha` with full history.
++3. The workflow verifies the checked-out commit is exactly `release_sha`
++   and reachable from `origin/main`.
++4. The workflow verifies successful `ci.yml`, `gitleaks.yml`, and
++   `release-policy.yml` runs for the same SHA. This blocks promotion while
++   `ci.yml` remains local draft/untracked.
++5. The workflow injects deploy-time public tokens, requires
++   `WEB3FORMS_ACCESS_KEY`, and cache-busts `assets/styles.css` and
++   `assets/i18n.js` with the short SHA.
++6. `SamKirkland/FTP-Deploy-Action@v4.3.5` mirrors the working tree to the
++   Hostinger server over explicit FTPS on port 21.
++7. The action and the local fallback both exclude private/dev-only files, so
+    `.git*`, `.github/`, `docs/`, `scripts/`, `.env*`, `node_modules/`,
+-   `bun.lockb`, `package*.json`, `README.md` and `og.html` never leave
++   editor scratch, security configs, Markdown docs, `package*.json`,
++   `README.md`, `HANDOFF.md`, `MASTER_SPEC.md`, and `og.html` never leave
+    the repo.
+ 
+ Typical duration: 30-60 seconds.
+@@ -47,7 +79,7 @@ Typical duration: 30-60 seconds.
+ ### Status checks
+ 
+ Watch the run live at
+-`github.com/chochy2001/jorgesalgadomiranda_landing/actions`.
++`github.com/CAPDESIS/jorgesalgadomiranda_landing/actions`.
+ 
+ ### Finding the exact FTP host value
+ 
+@@ -84,10 +116,9 @@ you the DNS didn't resolve. Double-check the value in hPanel.
+   you're likely double-nested. The chroot already lands you inside
+   `public_html/`, so `server-dir: public_html/` would create
+   `public_html/public_html/`. Keep `server-dir: ./`.
+-- **FTPS handshake failure**: if your account doesn't support FTPS,
+-  change `protocol: ftps` back to `protocol: ftp` in
+-  `.github/workflows/deploy.yml`. Hostinger supports FTPS on port 21
+-  (explicit TLS); some older accounts may still be plain FTP only.
++- **FTPS handshake failure**: treat this as a release blocker. Do not
++  downgrade to plain FTP; rotate/repair the Hostinger FTP account or open
++  a support ticket so credentials are never sent in cleartext.
+ - **Concurrency lock** from a still-running deploy. The `concurrency`
+   block in the workflow serializes deploys so you won't race yourself.
+ 
+@@ -98,13 +129,19 @@ Requires `lftp` on your machine:
+ ```bash
+ brew install lftp
+ cp .env.example .env
+-# fill in FTP_HOST, FTP_USER, FTP_PASS, FTP_REMOTE_DIR
+-bun run deploy
++# fill in FTP_HOST, FTP_USER, FTP_PASS
++# fill in WEB3FORMS_ACCESS_KEY so the contact form is live
++# optional: override FTP_REMOTE_DIR only if Hostinger is not chrooted to public_html
++RELEASE_SHA=<40-char-main-sha> bun run deploy
+ ```
+ 
+-The script at `scripts/deploy.sh` uses the same exclude list as the
+-GitHub Actions workflow, so both deploy paths produce byte-identical
+-remotes.
++The script at `scripts/deploy.sh` verifies `RELEASE_SHA`, checks that it
++is contained in `origin/main`, creates a temporary `git archive`, injects
++the deploy-time public tokens, cache-busts `assets/styles.css` and
++`assets/i18n.js`, and uploads that clean source tree with the same
++private/dev-only exclusions as the GitHub Actions workflow. It refuses to
++deploy if `WEB3FORMS_ACCESS_KEY` is missing. Local `.env` uses
++`FTP_PASS`; GitHub Actions uses the repository secret `FTP_PASSWORD`.
+ 
+ ## What gets uploaded
+ 
+@@ -123,7 +160,9 @@ remotes.
+ | `scripts/`                          | no        | local tooling                         |
+ | `.github/`                          | no        | CI config                             |
+ | `.env*`, `.gitignore`, `.git/`      | no        | private / dev-only                    |
+-| `package.json`, `README.md`         | no        | repo metadata                         |
++| `.gitleaks.toml`, `.pre-commit-config.yaml` | no | repo security/tooling config     |
++| `package.json`, `README.md`, `HANDOFF.md`, `MASTER_SPEC.md` | no | repo metadata/docs        |
++| `*.md` if uploaded accidentally             | denied by `.htaccess` | defense in depth |
+ 
+ ## Rollback
+ 
+@@ -131,17 +170,14 @@ Hostinger does not give you per-file version history. If a deploy breaks
+ production, the cleanest rollback is:
+ 
+ ```bash
+-git checkout <last-good-commit>
+-bun run deploy
+-git checkout main
++RELEASE_SHA=<last-good-40-char-sha> bun run deploy
+ ```
+ 
+ This re-runs the same mirror against the remote with the old file tree,
+-restoring it. Then switch back to `main` locally so future commits are
+-based on current.
++restoring it without changing the local checkout.
+ 
+-Alternatively, trigger the GitHub Actions workflow manually pointing at
+-the last-good commit via the "Run workflow" UI.
++Alternatively, trigger the GitHub Actions workflow manually with
++`release_sha=<last-good-40-char-sha>` via the "Run workflow" UI.
+ 
+ ## Smoke test before deploy
+ 
+@@ -166,22 +202,25 @@ apex. HTTPS handled by Hostinger automatically.
+ 
+ ## Third-party tokens to plug in
+ 
+-The repo ships with clearly-labelled `YOUR_*` placeholders. Fill them in
+-and push. All four are safe to commit because they're scoped to the
+-public domain and/or don't expose secrets server-side.
++The repo ships with clearly-labelled `YOUR_*` placeholders. Keep those
++placeholders committed and inject production values at deploy time through
++GitHub Actions secrets. The rendered site exposes public client IDs/keys where
++the browser needs them, but the repository stays token-free and redeployable.
+ 
+-| Placeholder                  | Where                                      | Where to get it                                       |
+-|------------------------------|--------------------------------------------|-------------------------------------------------------|
+-| `YOUR_UMAMI_WEBSITE_ID`      | `<script data-website-id>` in `index.html` | `stats.capdesis.com` → Settings → Websites → Add site |
+-| `YOUR_CF_BEACON_TOKEN`       | `data-cf-beacon` in `index.html`           | Cloudflare → Analytics & Logs → Web Analytics         |
+-| `YOUR_WEB3FORMS_ACCESS_KEY`  | `<input name="access_key">` in `index.html`| web3forms.com, enter an email, get the key instantly |
+-| `jorgesalgadomiranda/30min`  | `href` on `#cal-cta` button in `index.html`| cal.com → Event Types → copy the slug                 |
++| Placeholder / value          | GitHub secret / location       | Where to get it                                       |
++|------------------------------|---------------------------------|-------------------------------------------------------|
++| `YOUR_UMAMI_WEBSITE_ID`      | `UMAMI_WEBSITE_ID`              | `stats.capdesis.com` -> Settings -> Websites -> Add site |
++| `YOUR_CF_BEACON_TOKEN`       | `CF_BEACON_TOKEN`               | Cloudflare -> Analytics & Logs -> Web Analytics       |
++| `YOUR_WEB3FORMS_ACCESS_KEY`  | `WEB3FORMS_ACCESS_KEY`          | web3forms.com, enter an email, get the key instantly  |
++| `YOUR_POSTHOG_KEY`           | `PUBLIC_POSTHOG_KEY`            | PostHog -> Project settings                           |
++| `jorgesalgadomiranda/30min`  | `href` on `#cal-cta` in `index.html` | cal.com -> Event Types -> copy the slug          |
+ 
+-After plugging them in:
++After configuring the secrets:
+ 1. Smoke-test locally (`python3 -m http.server 8765 --bind 127.0.0.1`)
+-2. Submit the contact form with a real email. Confirm it hits your inbox.
+-3. Check the Umami dashboard within ~60s to see the visit appear.
+-4. Check the Cloudflare Web Analytics dashboard within ~5 min.
++2. Trigger the manual deploy workflow with the approved `release_sha`.
++3. Submit the contact form with a real email. Confirm it hits your inbox.
++4. Check the Umami/PostHog dashboards and Cloudflare Web Analytics after the
++   live deploy.
+ 
+ ## Security stack
+ 
+@@ -203,8 +242,9 @@ Defense-in-depth for a static site:
+ 
+ ## Pre-deploy checklist
+ 
+-- [ ] `git status` clean
++- [ ] Exact 40-character `release_sha` selected and contained in `origin/main`
+ - [ ] Smoke test on `http://127.0.0.1:8765` passes
+ - [ ] i18n parity unchanged or improved (run the `EN={n}, ES={n}` Python
+       check from `CHANGELOG.md` examples)
+-- [ ] Commit, push to `main`, watch the Actions tab
++- [ ] Trigger the manual deploy workflow or run the local fallback with
++      `RELEASE_SHA=<40-char-main-sha>`
+diff --git a/docs/GITHUB_SECRETS.md b/docs/GITHUB_SECRETS.md
+index 06e85d0..3f67213 100644
+--- a/docs/GITHUB_SECRETS.md
++++ b/docs/GITHUB_SECRETS.md
+@@ -5,27 +5,28 @@ reads. All secrets live under:
+ 
+ > `Settings > Secrets and variables > Actions > Repository secrets`
+ 
+-Last updated: 2026-04-23.
++Last updated: 2026-06-29.
+ 
+ ---
+ 
+ ## TL;DR
+ 
+-Configure 3 required. 3 are optional, only for enabling integrations
+-that would otherwise stay on placeholder. Total: 6.
++Configure 4 required. 3 are optional, only for enabling analytics
++integrations that otherwise stay on placeholders. Total: 7.
+ 
+ | Name | Status | What breaks without it |
+ |---|---|---|
+ | `FTP_HOST` | REQUIRED | Deploy cannot connect to Hostinger. |
+ | `FTP_USER` | REQUIRED | Deploy fails authentication. |
+ | `FTP_PASSWORD` | REQUIRED | Deploy fails authentication. |
++| `WEB3FORMS_ACCESS_KEY` | REQUIRED | Production deploy refuses to publish a dead contact form. |
+ | `UMAMI_WEBSITE_ID` | optional | Umami analytics script skips init (IIFE detects the `YOUR_` prefix). |
+ | `CF_BEACON_TOKEN` | optional | Cloudflare Web Analytics beacon skips init. |
+-| `WEB3FORMS_ACCESS_KEY` | optional | Contact form submit returns a rejection toast before sending. |
++| `PUBLIC_POSTHOG_KEY` | optional | PostHog analytics script skips init. |
+ 
+-The optional ones are injected into `index.html` at deploy time,
+-replacing their respective `YOUR_*` placeholder strings. The committed
+-HTML stays token-free, so forks of this repo are still safe to run.
++Deploy-time public tokens are injected into `index.html`, replacing
++their respective `YOUR_*` placeholder strings. The committed HTML stays
++token-free, so forks of this repo are still safe to run.
+ 
+ ---
+ 
+@@ -57,25 +58,47 @@ first wired up. If one is missing or stale, the deploy aborts at the
+ - **Scope reminder:** Hostinger FTP users are chrooted to
+   `public_html/` on this plan; the workflow uses `server-dir: ./` on
+   purpose so files do NOT double-nest.
++- **Naming reminder:** GitHub Actions uses `FTP_PASSWORD`; the local
++  fallback `.env` uses `FTP_PASS` and `scripts/deploy.sh` accepts
++  `FTP_PASSWORD` only as a compatibility alias.
+ 
+ ---
+ 
+-## Optional: production tokens injected at deploy
++## Required: contact-form token
++
++### WEB3FORMS_ACCESS_KEY
++
++- **What:** access key for the Web3Forms free tier that powers the
++  contact form.
++- **Placeholder in HTML:** `YOUR_WEB3FORMS_ACCESS_KEY` on the hidden
++  `access_key` input in `index.html`.
++- **Where to find:** https://web3forms.com after signing up. Free tier
++  is 250 submissions a month, delivered to the email associated with
++  your Web3Forms account.
++- **Docs:** see `docs/MANUAL_SETUP.md` section 4.
++
++The deploy workflow and local fallback both fail closed if this value is
++missing, because the primary lead-generation path would otherwise be
++published with a placeholder.
++
++---
++
++## Optional: analytics tokens injected at deploy
+ 
+ Each of these is a placeholder string in the committed HTML. The
+ workflow replaces the placeholder with the secret value right before
+ uploading, so the real token never lives in the repository.
+ 
+ If the secret is not set, the replacement is silently skipped and the
+-corresponding IIFE / form guard treats the placeholder as "not yet
++corresponding analytics IIFE treats the placeholder as "not yet
+ configured" and does nothing.
+ 
+ ### UMAMI_WEBSITE_ID
+ 
+ - **What:** Website ID from your self-hosted Umami at
+   `stats.capdesis.com`.
+-- **Placeholder in HTML:** `YOUR_UMAMI_WEBSITE_ID` on
+-  `index.html` line 124 (inside the analytics IIFE).
++- **Placeholder in HTML:** `YOUR_UMAMI_WEBSITE_ID` inside the analytics
++  bootstrap in `index.html`.
+ - **Where to find:** stats.capdesis.com -> Settings -> Websites. A UUID
+   like `01234567-89ab-cdef-0123-456789abcdef`.
+ - **Docs:** see `docs/MANUAL_SETUP.md` section 1.
+@@ -83,23 +106,20 @@ configured" and does nothing.
+ ### CF_BEACON_TOKEN
+ 
+ - **What:** token for the Cloudflare Web Analytics client beacon.
+-- **Placeholder in HTML:** `YOUR_CF_BEACON_TOKEN` on
+-  `index.html` line 125.
++- **Placeholder in HTML:** `YOUR_CF_BEACON_TOKEN` inside the analytics
++  bootstrap in `index.html`.
+ - **Where to find:** Cloudflare dashboard -> Analytics & Logs -> Web
+   Analytics -> your site -> Manage Site -> copy the `token=` value from
+   the JavaScript snippet.
+ - **Docs:** see `docs/MANUAL_SETUP.md` section 2b.
+ 
+-### WEB3FORMS_ACCESS_KEY
++### PUBLIC_POSTHOG_KEY
+ 
+-- **What:** access key for the Web3Forms free tier that powers the
+-  contact form.
+-- **Placeholder in HTML:** `YOUR_WEB3FORMS_ACCESS_KEY` on
+-  `index.html` line 1824 (hidden input in the contact form).
+-- **Where to find:** https://web3forms.com after signing up. Free tier
+-  is 250 submissions a month, delivered to the email associated with
+-  your Web3Forms account.
+-- **Docs:** see `docs/MANUAL_SETUP.md` section 4.
++- **What:** public project key for optional PostHog analytics.
++- **Placeholder in HTML:** `YOUR_POSTHOG_KEY` inside the analytics
++  bootstrap in `index.html`.
++- **Where to find:** PostHog -> Project settings.
++- **Docs:** see `README.md` configuration placeholders.
+ 
+ ---
+ 
+@@ -123,9 +143,11 @@ From `.github/workflows/deploy.yml`:
+ 
+ - Step `Sanitize FTP host` reads `FTP_HOST`.
+ - Step `Inject production tokens` reads `UMAMI_WEBSITE_ID`,
+-  `CF_BEACON_TOKEN`, `WEB3FORMS_ACCESS_KEY`. Each substitution is a
+-  Python call that reads the secret from the environment and rewrites
+-  `index.html` only if the env var is non-empty.
++  `CF_BEACON_TOKEN`, `WEB3FORMS_ACCESS_KEY`, and `PUBLIC_POSTHOG_KEY`.
++  Each substitution is a Python call that reads the secret from the
++  environment and rewrites `index.html` only if the env var is non-empty.
++- Step `Assert contact form access key is live` fails the release if
++  `WEB3FORMS_ACCESS_KEY` is missing or the placeholder survived injection.
+ - Step `Deploy via FTPS` reads `FTP_USER` and `FTP_PASSWORD`.
+ - Step `Post-deploy smoke test` reads no secrets. It curls each key
+   URL up to 3 times and fails the job if any path does not return 200.
+diff --git a/docs/MANUAL_SETUP.md b/docs/MANUAL_SETUP.md
+index dda62a3..4e1e471 100644
+--- a/docs/MANUAL_SETUP.md
++++ b/docs/MANUAL_SETUP.md
+@@ -2,10 +2,12 @@
+ 
+ Everything I couldn't automate (account creation, dashboard clicks,
+ private tokens) lives here. Work top-to-bottom; each section says what
+-to paste into the code once you've got the value.
++to configure in GitHub Actions secrets or local `.env` once you've got
++the value.
+ 
+-After any change, commit and push. GitHub Actions redeploys to
+-Hostinger automatically.
++After any code or documentation change, commit and push so CI can run.
++Production does not deploy on push; trigger the `Deploy to Hostinger`
++workflow manually with an approved 40-character `release_sha`.
+ 
+ ---
+ 
+@@ -18,10 +20,10 @@ Stats live at the self-hosted Umami you already run on
+ 2. Go to **Settings → Websites → Add website**.
+ 3. Name: `jorgesalgadomiranda.com`. Domain: `jorgesalgadomiranda.com`.
+ 4. Save. Umami shows a Website ID (looks like `a1b2c3d4-...`).
+-5. Open `index.html`, search for `YOUR_UMAMI_WEBSITE_ID`, replace with
+-   the ID.
+-6. Commit + push. Visits should appear on the Umami dashboard within
+-   about 60 seconds.
++5. Store that value in the GitHub Actions repository secret
++   `UMAMI_WEBSITE_ID`. For a local fallback deploy, put it in `.env`.
++6. Redeploy from an approved `release_sha`. Visits should appear on the
++   Umami dashboard within about 60 seconds after the live page loads.
+ 
+ ---
+ 
+@@ -40,10 +42,10 @@ DNS is proxied.
+ 1. Cloudflare dashboard → **Analytics & Logs → Web Analytics**.
+ 2. **Add a site** → `jorgesalgadomiranda.com`.
+ 3. Cloudflare generates a JS snippet with a `token` value.
+-4. Open `index.html`, search for `YOUR_CF_BEACON_TOKEN`, replace with
+-   just the token string (not the whole snippet: the `<script>` tag
+-   is already in the file).
+-5. Commit + push. Data appears within ~5 minutes.
++4. Store just the token string in the GitHub Actions repository secret
++   `CF_BEACON_TOKEN`. For a local fallback deploy, put it in `.env`.
++5. Redeploy from an approved `release_sha`. Data appears within ~5 minutes
++   after the live page loads.
+ 
+ ---
+ 
+@@ -104,12 +106,12 @@ Free, no signup required beyond entering an email.
+    will be delivered).
+ 3. Check that inbox: they send a confirmation with your unique
+    access key.
+-4. Open `index.html`, search for `YOUR_WEB3FORMS_ACCESS_KEY`, replace
+-   with the key.
+-5. Commit + push.
+-6. Smoke-test locally first: `python3 -m http.server 8765 --bind
+-   127.0.0.1`, fill the form with a real address, submit, confirm the
+-   email lands in your inbox.
++4. Store the key in the GitHub Actions repository secret
++   `WEB3FORMS_ACCESS_KEY`. For a local fallback deploy, put it in `.env`.
++5. Production deploys now fail closed if this secret is missing or if the
++   placeholder is still present in the upload candidate.
++6. After deploy, submit the live contact form with a real address and
++   confirm the email lands in your inbox.
+ 
+ **What's already in place:**
+ 
+@@ -184,6 +186,7 @@ Do this on a calendar reminder every 3-6 months:
+ - Hostinger **hPanel → Files → FTP Accounts** → change password.
+ - GitHub **Settings → Secrets and variables → Actions** → update
+   `FTP_PASSWORD`.
++- Local fallback only: update `FTP_PASS` in your private `.env`.
+ - Run the `workflow_dispatch` deploy once to confirm it still works.
+ 
+ ---
+@@ -222,7 +225,9 @@ I can generate templates when you're ready. Ping me.
+ YOUR_UMAMI_WEBSITE_ID      → index.html (section 1)
+ YOUR_CF_BEACON_TOKEN       → index.html (section 2)
+ YOUR_WEB3FORMS_ACCESS_KEY  → index.html (section 4)
++YOUR_POSTHOG_KEY           → index.html, optional GitHub secret PUBLIC_POSTHOG_KEY
+ jorgesalgadomiranda/30min  → index.html, cal-cta href (section 5)
+ ```
+ 
+-Grep for `YOUR_` at any time to see what's still pending.
++Grep for `YOUR_` at any time to see placeholders that are intentionally
++kept in source and replaced only at deploy time.
+diff --git a/docs/TECHNOLOGIES.md b/docs/TECHNOLOGIES.md
+index c26b682..9da1a7f 100644
+--- a/docs/TECHNOLOGIES.md
++++ b/docs/TECHNOLOGIES.md
+@@ -8,19 +8,20 @@ guesswork.
+ ## Runtime (the deployed website)
+ 
+ ### Vanilla HTML, CSS, JavaScript
+-The whole site is one `index.html` with inline `<style>` and `<script>` tags.
+-- Why: no build step, no bundler, no framework, no dependency upgrades to
+-  chase. The site loads in one round trip and renders without JavaScript.
+-- How: edit `index.html` directly. There is no transpilation; the browser
+-  reads what you write.
+-
+-### Google Fonts: Instrument Serif + Geist + Geist Mono
++The site ships as static first-party files: `index.html`,
++`assets/styles.css`, `assets/i18n.js`, CV HTML/PDF assets, fonts, and SEO
++files.
++- Why: no bundler, no framework runtime, no server process, and no asset
++  compilation step. The browser reads committed files directly.
++- How: edit `index.html`, `assets/styles.css`, and `assets/i18n.js`
++  directly, then run `bun run build` to execute the static validator.
++
++### Self-hosted fonts: Instrument Serif + Geist + Geist Mono
+ - Why: Instrument Serif gives the editorial weight to titles. Geist is a
+   sharp neo-grotesque designed by Vercel; reads cleanly at any size. Geist
+   Mono carries kickers, code, and stat labels.
+-- How: loaded via `<link rel="stylesheet" media="print" onload="this.media='all'">`
+-  with a `<noscript>` fallback. Non-blocking; the page paints with system
+-  fonts first, then upgrades.
++- How: served from local `fonts/*.woff2` files with `@font-face`
++  declarations in `assets/styles.css` and preload hints in `index.html`.
+ 
+ ### OKLCH + color-mix
+ - Why: predictable perceptual lightness across the whole gamut, makes
+@@ -73,9 +74,10 @@ The whole site is one `index.html` with inline `<style>` and `<script>` tags.
+ ### lftp
+ - Why: parallel, resumable FTP mirror with exclude globs. Hostinger only
+   exposes FTP; lftp handles concurrency and incremental upload cleanly.
+-- How: `bun run deploy` calls `scripts/deploy.sh`, which runs `lftp -u
+-  ${FTP_USER},${FTP_PASS} ${FTP_HOST}` with a `mirror --reverse --delete`
+-  command.
++- How: `RELEASE_SHA=<40-char-main-sha> bun run deploy` calls
++  `scripts/deploy.sh`, verifies the SHA is on `origin/main`, extracts a
++  clean `git archive`, injects deploy-time public tokens, and runs `lftp`
++  with a `mirror --reverse --delete` command.
+ - Install: `brew install lftp`
+ 
+ ### Python `http.server`
+@@ -120,6 +122,6 @@ messages, not changelogs. Every commit is authored as
+ keep history consistent.
+ 
+ ### GitHub
+-Repo lives at `github.com/chochy2001/jorgesalgadomiranda_landing`. SSH
+-remote, push to `main` deploys nothing automatically (CI/CD is intentional
+-manual via FTP for now).
++Repo lives at `github.com/CAPDESIS/jorgesalgadomiranda_landing`. SSH
++remote. Pushes to `main` run validation, secret scanning, and release-policy
++checks; production deploy remains a manual SHA promotion via FTP.
+diff --git a/index.html b/index.html
+index 8256e78..fa0d3dd 100644
+--- a/index.html
++++ b/index.html
+@@ -3,7 +3,7 @@
+   ─────────────────────────────────────────────────────────────
+   Jorge Salgado Miranda · Portfolio
+   Originally built at https://jorgesalgadomiranda.com/
+-  Source: https://github.com/chochy2001/jorgesalgadomiranda_landing
++  Source: https://github.com/CAPDESIS/jorgesalgadomiranda_landing
+   Free to fork. Attribution appreciated.
+   ─────────────────────────────────────────────────────────────
+ -->
+@@ -2105,8 +2105,11 @@
+     });
+     localStorage.setItem('lang', lang);
+   };
++  const urlLang = new URLSearchParams(window.location.search).get('lang');
+   const savedLang = localStorage.getItem('lang');
+-  const initLang = savedLang || ((navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en');
++  const initLang = (urlLang === 'en' || urlLang === 'es')
++    ? urlLang
++    : (savedLang || ((navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en'));
+   applyLang(initLang);
+   const langToggle = document.getElementById('lang-toggle');
+   const syncLangAria = () => {
+@@ -2678,7 +2681,7 @@
+ 
+   // ============ ATTRIBUTION SIGNATURE ============
+   // Visible to anyone who opens DevTools. Please keep this if you fork.
+-  // Source: https://github.com/chochy2001/jorgesalgadomiranda_landing.
++  // Source: https://github.com/CAPDESIS/jorgesalgadomiranda_landing.
+   try {
+     console.info(
+       '%cBuilt by Jorge Salgado Miranda%c · jorgesalgadomiranda.com',
+diff --git a/legal/privacy.html b/legal/privacy.html
+index 61471d1..c5eb560 100644
+--- a/legal/privacy.html
++++ b/legal/privacy.html
+@@ -162,7 +162,7 @@
+   <p>Mexican (LFPDPPP) and EU (GDPR) frameworks both apply because my site accepts international traffic. You can request access, correction, portability, deletion, or object to processing by emailing me. I reply within 7 calendar days and always within 30.</p>
+ 
+   <h2>7. Security</h2>
+-  <p>TLS 1.2+, HSTS preload, CSP, Cloudflare bot fight mode, rotating FTP credentials on the host, and no server-side application on this domain (all content is static HTML served from Hostinger).</p>
++  <p>TLS, HSTS, CSP, Cloudflare edge protections where configured, rotating host credentials, and no server-side application on this domain (all content is static HTML served from Hostinger).</p>
+ 
+   <h2>8. Cookies and local storage</h2>
+   <p>To remember your analytics choice, the site stores a single first-party item named <code>jsm-cookie-consent</code> in your browser's local storage. It records whether you accepted, the timestamp and a version number. After 365 days the site treats the record as expired and shows the consent banner again so you can renew your choice; the stored item itself is not auto-deleted from your browser, but you can clear it at any time through your browser's site-data controls. It is strictly necessary for the consent mechanism and is not used for tracking. Umami and Cloudflare analytics remain cookieless. If you accept analytics, PostHog sets its own cookies and storage identifiers to measure usage; declining or choosing essentials only prevents PostHog from loading. Cal.com may set cookies on its own domain when you book a call; that is subject to Cal.com's policy.</p>
+@@ -208,7 +208,7 @@
+     <p>Aplican tanto la LFPDPPP mexicana como el RGPD europeo porque el sitio recibe tráfico internacional. Puedes ejercer derechos de acceso, rectificación, cancelación, oposición, portabilidad y limitación escribiendo al correo de arriba. Respondo en menos de 7 días naturales y siempre dentro de 30.</p>
+ 
+     <h2>7. Seguridad</h2>
+-    <p>TLS 1.2+, HSTS preload, CSP, Cloudflare bot fight mode, rotación de credenciales FTP en el host, y sin backend de aplicación en este dominio (todo el contenido se sirve estático desde Hostinger).</p>
++    <p>TLS, HSTS, CSP, protecciones de borde de Cloudflare cuando están configuradas, rotación de credenciales FTP en el host, y sin backend de aplicación en este dominio (todo el contenido se sirve estático desde Hostinger).</p>
+ 
+     <h2>8. Cookies y almacenamiento local</h2>
+     <p>Para recordar tu elección de analítica, el sitio guarda un único elemento propio llamado <code>jsm-cookie-consent</code> en el almacenamiento local de tu navegador. Registra si aceptaste, la marca de tiempo y un número de versión. Después de 365 días el sitio considera el registro como vencido y vuelve a mostrar el banner de consentimiento para que renueves tu elección; el elemento almacenado no se borra automáticamente de tu navegador, pero puedes eliminarlo cuando quieras desde los controles de datos del sitio de tu navegador. Es estrictamente necesario para el mecanismo de consentimiento y no se usa para rastreo. Las analíticas de Umami y Cloudflare siguen siendo sin cookies. Si aceptas la analítica, PostHog coloca sus propias cookies e identificadores para medir el uso; rechazar o elegir solo esenciales evita que PostHog se cargue. Cal.com puede establecer cookies en su propio dominio cuando agendas una llamada; eso se rige por la política de Cal.com.</p>
+diff --git a/legal/terms.html b/legal/terms.html
+index 30eb82b..fd16001 100644
+--- a/legal/terms.html
++++ b/legal/terms.html
+@@ -1,9 +1,8 @@
+ <!DOCTYPE html>
+ <!--
+   ─────────────────────────────────────────────────────────────
+-  Jorge Salgado Miranda. Terms of use (draft template).
+-  Review before going live. Not linked from main nav yet.
+-  Live URL will be: https://jorgesalgadomiranda.com/legal/terms.html
++  Jorge Salgado Miranda. Terms of use.
++  Live URL: https://jorgesalgadomiranda.com/legal/terms.html
+   ─────────────────────────────────────────────────────────────
+ -->
+ <html lang="en" data-origin="jsm">
+@@ -116,7 +115,7 @@
+ 
+   <header>
+     <h1>Terms of Use</h1>
+-    <div class="meta">Last updated 2026-04-22</div>
++    <div class="meta">Last updated 2026-06-29</div>
+   </header>
+ 
+   <p>These terms govern your use of <strong>jorgesalgadomiranda.com</strong> and the repository that hosts its source code. By browsing the site, downloading a CV, booking a call, or forking the template repo, you accept them.</p>
+@@ -152,7 +151,7 @@
+ 
+   <header>
+     <h1 lang="es">Términos de Uso</h1>
+-    <div class="meta">Última actualización 2026-04-22</div>
++    <div class="meta">Última actualización 2026-06-29</div>
+   </header>
+ 
+   <p lang="es">Estos términos rigen tu uso de <strong>jorgesalgadomiranda.com</strong> y del repositorio que aloja su código fuente. Al navegar el sitio, descargar un CV, agendar una llamada o hacer fork de la plantilla, los aceptas.</p>
+diff --git a/package.json b/package.json
+index 17944f6..2e4ff48 100644
+--- a/package.json
++++ b/package.json
+@@ -5,7 +5,8 @@
+   "private": true,
+   "scripts": {
+     "dev": "bunx serve . -l 3000",
+-    "build": "echo 'Static site, no build step required'",
++    "lint": "python3 scripts/validate-static-site.py",
++    "build": "bun run lint",
+     "deploy": "bash scripts/deploy.sh"
+   }
+ }
+diff --git a/scripts/deploy.sh b/scripts/deploy.sh
+index e1ab0f9..f9c78a3 100755
+--- a/scripts/deploy.sh
++++ b/scripts/deploy.sh
+@@ -1,27 +1,123 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ 
++ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++cd "$ROOT"
++
++ENV_RELEASE_SHA="${RELEASE_SHA-}"
++ENV_FTP_HOST="${FTP_HOST-}"
++ENV_FTP_USER="${FTP_USER-}"
++ENV_FTP_PASS="${FTP_PASS-}"
++ENV_FTP_REMOTE_DIR="${FTP_REMOTE_DIR-}"
++ENV_WEB3FORMS_ACCESS_KEY="${WEB3FORMS_ACCESS_KEY-}"
++ENV_UMAMI_WEBSITE_ID="${UMAMI_WEBSITE_ID-}"
++ENV_CF_BEACON_TOKEN="${CF_BEACON_TOKEN-}"
++ENV_PUBLIC_POSTHOG_KEY="${PUBLIC_POSTHOG_KEY-}"
++
+ if [ -f .env ]; then
+   set -a
+   source .env
+   set +a
+ fi
+ 
++[ -n "$ENV_RELEASE_SHA" ] && RELEASE_SHA="$ENV_RELEASE_SHA"
++[ -n "$ENV_FTP_HOST" ] && FTP_HOST="$ENV_FTP_HOST"
++[ -n "$ENV_FTP_USER" ] && FTP_USER="$ENV_FTP_USER"
++[ -n "$ENV_FTP_PASS" ] && FTP_PASS="$ENV_FTP_PASS"
++[ -n "$ENV_FTP_REMOTE_DIR" ] && FTP_REMOTE_DIR="$ENV_FTP_REMOTE_DIR"
++[ -n "$ENV_WEB3FORMS_ACCESS_KEY" ] && WEB3FORMS_ACCESS_KEY="$ENV_WEB3FORMS_ACCESS_KEY"
++[ -n "$ENV_UMAMI_WEBSITE_ID" ] && UMAMI_WEBSITE_ID="$ENV_UMAMI_WEBSITE_ID"
++[ -n "$ENV_CF_BEACON_TOKEN" ] && CF_BEACON_TOKEN="$ENV_CF_BEACON_TOKEN"
++[ -n "$ENV_PUBLIC_POSTHOG_KEY" ] && PUBLIC_POSTHOG_KEY="$ENV_PUBLIC_POSTHOG_KEY"
++
++: "${RELEASE_SHA:?RELEASE_SHA not set. Use RELEASE_SHA=<40-character-main-sha> bun run deploy.}"
+ : "${FTP_HOST:?FTP_HOST not set. Copy .env.example to .env and fill it in.}"
+ : "${FTP_USER:?FTP_USER not set}"
+-: "${FTP_PASS:?FTP_PASS not set}"
+-: "${FTP_REMOTE_DIR:=/public_html}"
++FTP_PASS="${FTP_PASS:-${FTP_PASSWORD:-}}"
++: "${FTP_PASS:?FTP_PASS not set. Use FTP_PASS in local .env; FTP_PASSWORD is accepted as a compatibility alias.}"
++: "${FTP_REMOTE_DIR:=./}"
++
++if ! printf '%s' "$RELEASE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
++  echo "RELEASE_SHA must be the exact 40-character commit SHA approved for production." >&2
++  exit 1
++fi
++RELEASE_SHA="$(printf '%s' "$RELEASE_SHA" | tr '[:upper:]' '[:lower:]')"
++
++case "$FTP_REMOTE_DIR" in
++  /public_html|public_html|public_html/)
++    echo "FTP_REMOTE_DIR=$FTP_REMOTE_DIR is the old double-nesting value. Use ./ for Hostinger chrooted FTP, or ./public_html/ only for a verified non-chrooted account." >&2
++    exit 1
++    ;;
++esac
++
++if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
++  echo "scripts/deploy.sh must run from a git checkout so RELEASE_SHA can be verified." >&2
++  exit 1
++fi
++
++git fetch --no-tags origin main:refs/remotes/origin/main
++git cat-file -e "$RELEASE_SHA^{commit}"
++if ! git merge-base --is-ancestor "$RELEASE_SHA" refs/remotes/origin/main; then
++  echo "RELEASE_SHA $RELEASE_SHA is not contained in origin/main." >&2
++  exit 1
++fi
+ 
+ if ! command -v lftp >/dev/null 2>&1; then
+   echo "lftp not installed. brew install lftp" >&2
+   exit 1
+ fi
+ 
+-echo "Uploading to $FTP_HOST:$FTP_REMOTE_DIR"
++DEPLOY_SOURCE_DIR="$(mktemp -d)"
++cleanup() {
++  rm -rf "$DEPLOY_SOURCE_DIR"
++}
++trap cleanup EXIT
++
++git archive "$RELEASE_SHA" | tar -x -C "$DEPLOY_SOURCE_DIR"
++
++: "${WEB3FORMS_ACCESS_KEY:?WEB3FORMS_ACCESS_KEY not set. Production deploys must inject a live contact-form key.}"
++
++python3 - "$DEPLOY_SOURCE_DIR/index.html" "$RELEASE_SHA" <<'PY'
++from pathlib import Path
++import os
++import sys
++
++path = Path(sys.argv[1])
++release_sha = sys.argv[2]
++short_sha = release_sha[:7]
++html = path.read_text(encoding="utf-8")
++
++replacements = {
++    "YOUR_UMAMI_WEBSITE_ID": os.environ.get("UMAMI_WEBSITE_ID", ""),
++    "YOUR_CF_BEACON_TOKEN": os.environ.get("CF_BEACON_TOKEN", ""),
++    "YOUR_WEB3FORMS_ACCESS_KEY": os.environ["WEB3FORMS_ACCESS_KEY"],
++    "YOUR_POSTHOG_KEY": os.environ.get("PUBLIC_POSTHOG_KEY", ""),
++}
++
++for placeholder, value in replacements.items():
++    if value:
++        html = html.replace(placeholder, value)
++
++html = html.replace('href="assets/styles.css"', f'href="assets/styles.css?v={short_sha}"')
++html = html.replace('src="assets/i18n.js"', f'src="assets/i18n.js?v={short_sha}"')
++
++if "YOUR_WEB3FORMS_ACCESS_KEY" in html:
++    print("WEB3FORMS_ACCESS_KEY injection failed; refusing to deploy a dead contact form.", file=sys.stderr)
++    sys.exit(1)
++
++if 'assets/styles.css?v=' not in html or 'assets/i18n.js?v=' not in html:
++    print("Asset cache-bust rewrite missed expected CSS/JS references.", file=sys.stderr)
++    sys.exit(1)
++
++path.write_text(html, encoding="utf-8")
++PY
++
++echo "Uploading $RELEASE_SHA to $FTP_HOST:$FTP_REMOTE_DIR"
+ 
+-lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
++LFTP_PASSWORD="$FTP_PASS" lftp --env-password -u "$FTP_USER" "$FTP_HOST" <<EOF
+ set ssl:verify-certificate yes
+ set ftp:ssl-force true
++lcd "$DEPLOY_SOURCE_DIR"
+ mirror --reverse \
+   --delete \
+   --verbose \
+@@ -33,6 +129,8 @@ mirror --reverse \
+   --exclude-glob .env.example \
+   --exclude-glob .env.local \
+   --exclude-glob .gitignore \
++  --exclude-glob .gitleaks.toml \
++  --exclude-glob .pre-commit-config.yaml \
+   --exclude-glob .remember/ \
+   --exclude-glob .playwright-mcp/ \
+   --exclude-glob .idea/ \
+@@ -45,11 +143,13 @@ mirror --reverse \
+   --exclude-glob bun.lockb \
+   --exclude-glob README.md \
+   --exclude-glob CLAUDE.md \
++  --exclude-glob HANDOFF.md \
++  --exclude-glob MASTER_SPEC.md \
+   --exclude-glob og.html \
+   --exclude-glob verify-*.png \
+   --exclude-glob *.log \
+   --exclude-glob .DS_Store \
+-  ./ $FTP_REMOTE_DIR
++  ./ "$FTP_REMOTE_DIR"
+ bye
+ EOF
+ 
+diff --git a/scripts/validate-static-site.py b/scripts/validate-static-site.py
+new file mode 100644
+index 0000000..788ac07
+--- /dev/null
++++ b/scripts/validate-static-site.py
+@@ -0,0 +1,185 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++from html.parser import HTMLParser
++from pathlib import Path
++import re
++import sys
++
++
++ROOT = Path(__file__).resolve().parents[1]
++DOMAIN = "https://jorgesalgadomiranda.com/"
++REQUIRED_FILES = [
++    "index.html",
++    "404.html",
++    "robots.txt",
++    "sitemap.xml",
++    ".htaccess",
++    "assets/styles.css",
++    "assets/i18n.js",
++    "legal/privacy.html",
++    "legal/terms.html",
++    "cv/Jorge_Salgado_Miranda_CV_EN.html",
++    "cv/Jorge_Salgado_Miranda_CV_ES.html",
++]
++
++
++class PageParser(HTMLParser):
++    def __init__(self) -> None:
++        super().__init__()
++        self.tags: list[tuple[str, dict[str, str]]] = []
++        self._in_title = False
++        self.title_parts: list[str] = []
++
++    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
++        attr_map = {name.lower(): value or "" for name, value in attrs}
++        self.tags.append((tag.lower(), attr_map))
++        if tag.lower() == "title":
++            self._in_title = True
++
++    def handle_endtag(self, tag: str) -> None:
++        if tag.lower() == "title":
++            self._in_title = False
++
++    def handle_data(self, data: str) -> None:
++        if self._in_title:
++            self.title_parts.append(data.strip())
++
++    @property
++    def title(self) -> str:
++        return " ".join(part for part in self.title_parts if part).strip()
++
++    def first(self, tag: str, **attrs: str) -> dict[str, str] | None:
++        for item_tag, item_attrs in self.tags:
++            if item_tag != tag:
++                continue
++            if all(item_attrs.get(key) == value for key, value in attrs.items()):
++                return item_attrs
++        return None
++
++    def all(self, tag: str, **attrs: str) -> list[dict[str, str]]:
++        matches: list[dict[str, str]] = []
++        for item_tag, item_attrs in self.tags:
++            if item_tag != tag:
++                continue
++            if all(item_attrs.get(key) == value for key, value in attrs.items()):
++                matches.append(item_attrs)
++        return matches
++
++
++def fail(message: str) -> None:
++    print(f"ERROR: {message}", file=sys.stderr)
++    sys.exit(1)
++
++
++def parse_html(relative_path: str) -> PageParser:
++    path = ROOT / relative_path
++    parser = PageParser()
++    parser.feed(path.read_text(encoding="utf-8"))
++    return parser
++
++
++for required in REQUIRED_FILES:
++    if not (ROOT / required).is_file():
++        fail(f"Missing required static artifact: {required}")
++
++index = parse_html("index.html")
++html = index.first("html")
++if not html or html.get("lang") not in {"es", "es-MX"}:
++    fail("index.html must declare a Spanish default html lang.")
++
++if "Jorge Salgado Miranda" not in index.title:
++    fail("index.html title must identify Jorge Salgado Miranda.")
++
++description = index.first("meta", name="description")
++if not description or len(description.get("content", "")) < 80:
++    fail("index.html needs a substantive meta description.")
++
++canonical = index.first("link", rel="canonical")
++if not canonical or canonical.get("href") != DOMAIN:
++    fail("index.html canonical URL must point to the production root.")
++
++alternate_langs = {tag.get("hreflang") for tag in index.all("link", rel="alternate")}
++if not {"es-MX", "en", "x-default"}.issubset(alternate_langs):
++    fail("index.html must expose es-MX, en, and x-default hreflang links.")
++
++og_image = index.first("meta", property="og:image")
++if not og_image or not og_image.get("content", "").startswith(DOMAIN):
++    fail("index.html must expose an absolute production og:image.")
++
++robots_meta = index.first("meta", name="robots")
++if not robots_meta or "index" not in robots_meta.get("content", ""):
++    fail("index.html must explicitly allow indexing.")
++
++access_key = index.first("input", name="access_key")
++if not access_key or "YOUR_WEB3FORMS_ACCESS_KEY" not in access_key.get("value", ""):
++    fail("index.html must keep the Web3Forms placeholder for deploy-time secret injection.")
++
++for asset in ("assets/styles.css", "assets/i18n.js"):
++    if asset not in (ROOT / "index.html").read_text(encoding="utf-8"):
++        fail(f"index.html must reference {asset}.")
++
++index_source = (ROOT / "index.html").read_text(encoding="utf-8")
++if "new URLSearchParams(window.location.search).get('lang')" not in index_source:
++    fail("index.html must honor ?lang=es/en so hreflang alternates are deterministic.")
++
++i18n_source = (ROOT / "assets/i18n.js").read_text(encoding="utf-8")
++if "window.__I18N__ = I18N" not in i18n_source:
++    fail("assets/i18n.js must expose the frozen I18N dictionary.")
++try:
++    en_source, rest = i18n_source.split("  es: {", 1)
++except ValueError:
++    fail("assets/i18n.js must contain an ES dictionary.")
++en_keys = set(re.findall(r'^    "([^"]+)":', en_source, flags=re.MULTILINE))
++es_keys = set(re.findall(r'^    "([^"]+)":', rest, flags=re.MULTILINE))
++if not en_keys or not es_keys:
++    fail("assets/i18n.js must contain EN and ES i18n keys.")
++if en_keys != es_keys:
++    missing_es = sorted(en_keys - es_keys)
++    missing_en = sorted(es_keys - en_keys)
++    fail(
++        "assets/i18n.js i18n parity failed; "
++        f"missing ES keys={missing_es[:5]}, missing EN keys={missing_en[:5]}"
++    )
++
++robots = (ROOT / "robots.txt").read_text(encoding="utf-8")
++if f"Sitemap: {DOMAIN}sitemap.xml" not in robots:
++    fail("robots.txt must point to the production sitemap.")
++
++sitemap = (ROOT / "sitemap.xml").read_text(encoding="utf-8")
++if DOMAIN not in sitemap or not re.search(r"<loc>https://jorgesalgadomiranda\.com/[^<]*</loc>", sitemap):
++    fail("sitemap.xml must list production URLs.")
++
++for page in [
++    "404.html",
++    "legal/privacy.html",
++    "legal/terms.html",
++    "cv/Jorge_Salgado_Miranda_CV_EN.html",
++    "cv/Jorge_Salgado_Miranda_CV_ES.html",
++]:
++    parsed = parse_html(page)
++    if not parsed.first("html"):
++        fail(f"{page} must contain an html root.")
++    if not parsed.title:
++        fail(f"{page} must contain a title.")
++
++for cv_page in [
++    "cv/Jorge_Salgado_Miranda_CV_EN.html",
++    "cv/Jorge_Salgado_Miranda_CV_ES.html",
++]:
++    source = (ROOT / cv_page).read_text(encoding="utf-8")
++    if re.search(r"<a\b[^>]*>\s*<button\b", source, flags=re.IGNORECASE):
++        fail(f"{cv_page} must not nest a button inside a link.")
++    parsed = parse_html(cv_page)
++    alternates = {
++        tag.get("hreflang"): tag.get("href")
++        for tag in parsed.all("link", rel="alternate")
++    }
++    if alternates.get("es-MX") != f"{DOMAIN}cv/Jorge_Salgado_Miranda_CV_ES.html":
++        fail(f"{cv_page} must link the es-MX CV alternate.")
++    if alternates.get("en") != f"{DOMAIN}cv/Jorge_Salgado_Miranda_CV_EN.html":
++        fail(f"{cv_page} must link the en CV alternate.")
++    if alternates.get("x-default") != f"{DOMAIN}cv/Jorge_Salgado_Miranda_CV_EN.html":
++        fail(f"{cv_page} must link the x-default CV alternate.")
++
++print("Static site validation OK")
+diff --git a/sitemap.xml b/sitemap.xml
+index 914adb3..ee79ab7 100644
+--- a/sitemap.xml
++++ b/sitemap.xml
+@@ -3,7 +3,7 @@
+         xmlns:xhtml="http://www.w3.org/1999/xhtml">
+   <url>
+     <loc>https://jorgesalgadomiranda.com/</loc>
+-    <lastmod>2026-04-21</lastmod>
++    <lastmod>2026-06-29</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>1.0</priority>
+     <xhtml:link rel="alternate" hreflang="es-MX" href="https://jorgesalgadomiranda.com/" />
+@@ -12,13 +12,13 @@
+   </url>
+   <url>
+     <loc>https://jorgesalgadomiranda.com/cv/Jorge_Salgado_Miranda_CV_EN.html</loc>
+-    <lastmod>2026-04-21</lastmod>
++    <lastmod>2026-06-29</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://jorgesalgadomiranda.com/cv/Jorge_Salgado_Miranda_CV_ES.html</loc>
+-    <lastmod>2026-04-21</lastmod>
++    <lastmod>2026-06-29</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+@@ -30,7 +30,7 @@
+   </url>
+   <url>
+     <loc>https://jorgesalgadomiranda.com/legal/terms.html</loc>
+-    <lastmod>2026-04-22</lastmod>
++    <lastmod>2026-06-29</lastmod>
+     <changefreq>yearly</changefreq>
+     <priority>0.4</priority>
+   </url>
