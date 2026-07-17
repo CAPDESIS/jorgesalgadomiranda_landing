@@ -1,0 +1,32 @@
+diff --git a/.github/workflows/gitleaks.yml b/.github/workflows/gitleaks.yml
+index c522442..61f661c 100644
+--- a/.github/workflows/gitleaks.yml
++++ b/.github/workflows/gitleaks.yml
+@@ -11,7 +11,7 @@ permissions:
+ 
+ jobs:
+   gitleaks:
+-    runs-on: ubuntu-latest
++    runs-on: [self-hosted, global]
+     steps:
+       - uses: actions/checkout@v4
+         with:
+diff --git a/MASTER_SPEC.md b/MASTER_SPEC.md
+index 72852aa..3f72c24 100644
+--- a/MASTER_SPEC.md
++++ b/MASTER_SPEC.md
+@@ -54,6 +54,14 @@ Client readiness: **Partial**. The code and project surfaces are documented, but
+ 
+ No raw environment values, credentials, tokens, private keys, or sensitive deployment secrets are copied into this document.
+ 
++### Migrated Root Handoff Notes
++
++Root cleanup reviewed JSM landing handoffs and retained these durable notes:
++
++- Root audits tracked PostHog wiring, CSP extension, and gitleaks hardening for this repo.
++- Because the repo owner is outside the CAPDESIS org, the `ancare` self-hosted runner may not be available. Workflows for this repo should stay on hosted runners unless runner scope is explicitly changed.
++- Public curl responses can be affected by Hostinger/Cloudflare bot protection; browser-like smoke tests are stronger evidence for client-facing readiness.
++
+ ## Validation Evidence
+ 
+ | scope | command | status | reason | next_action |
