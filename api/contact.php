@@ -10,6 +10,7 @@ define('JSM_CONTACT_PROXY', true);
 
 require __DIR__ . '/lib/bootstrap-env.php';
 require __DIR__ . '/lib/contact-validator.php';
+require __DIR__ . '/lib/rate-limit.php';
 require __DIR__ . '/lib/resend-mail.php';
 require __DIR__ . '/lib/smtp-mail.php';
 
@@ -55,6 +56,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 if (!empty($_POST['botcheck'])) {
     http_response_code(200);
     echo json_encode(['success' => true]);
+    exit;
+}
+
+// Per-IP throttle — public endpoint, cap delivery attempts (fail-closed).
+$client_ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+if (!jsm_contact_rate_limit_allow($client_ip)) {
+    http_response_code(429);
+    echo json_encode(['success' => false, 'message' => 'Too many requests']);
     exit;
 }
 
