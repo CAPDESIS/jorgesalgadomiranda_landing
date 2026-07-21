@@ -13,6 +13,6 @@
     "test:contact": "php scripts/test-contact-api.php"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^20.10.6"
+    "@happy-dom/global-registrator": "^20.11.0"
   }
 }
