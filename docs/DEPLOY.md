@@ -1,21 +1,24 @@
 # Deploy
 
-The site is hosted on Hostinger and deploys two ways, both via FTP/FTPS:
+The site is hosted on Hostinger and deploys through one controlled FTP/FTPS
+path:
 
-1. **Automatic** on landing-file pushes to `main` and daily schedule via
-   GitHub Actions (preferred).
-2. **Manual** from your laptop via `bun run deploy` (fallback if Actions
-   billing is paused or you want to test before pushing).
+1. **Manual `workflow_dispatch`** from `main`, on the trusted self-hosted
+   `deploy-only` runner, with an exact release SHA, release confirmations,
+   pinned FTP credentials and post-deploy smoke.
+2. **Manual** from your laptop via `bun run deploy` only as an audited recovery
+   fallback.
 
 ## Current production pilot status
 
-As of 2026-07-08, `.github/workflows/deploy.yml` is a validated
-main-to-production pilot:
+As of 2026-07-22, `.github/workflows/deploy.yml` is the direct
+main-to-production path:
 
-- `push` to `main` deploys when static site inputs change.
-- A daily production refresh runs at `13:40 UTC`.
-- `workflow_dispatch` remains available and keeps the explicit release SHA,
-  Monday window and confirmation gates.
+- Pushes and schedules do not deploy automatically.
+- `workflow_dispatch` requires an exact SHA contained in `origin/main`, green
+  validation, no known P0/P1 alerts, and backup confirmation (`yes` or `n/a`).
+- The deployment runs on the trusted self-hosted `deploy-only` runner and keeps
+  the production environment/concurrency lock.
 - Run `28984333192` on commit `bc3f382` passed in 26 seconds: release context,
   host preflight, cache-bust, optional token injection, contact-form guard, FTPS
   upload and asset smoke all passed.
@@ -53,15 +56,14 @@ them as `${{ secrets.FTP_HOST }}`, etc.
 
 ### How it runs
 
-Every push to `main` triggers the workflow. You can also trigger it
-manually from the Actions tab using the "Run workflow" button (the
-workflow is registered with `workflow_dispatch`).
+Trigger it manually from the Actions tab using the "Run workflow" button. The
+workflow is registered with `workflow_dispatch` only.
 
 Flow:
-1. The workflow resolves the release SHA from `github.sha` for automated runs
-   or from the manual `release_sha` input for `workflow_dispatch`.
-2. Manual dispatch keeps the Monday window and confirmation gates; automated
-   static deploys rely on the exact `main` SHA plus post-deploy smoke.
+1. The workflow resolves the exact `release_sha` input and verifies that it is
+   contained in `origin/main`.
+2. The operator confirms release health, known P0/P1 status and backup state;
+   there is no Monday-only or staging gate.
 3. `actions/checkout@v6` pulls the selected SHA.
 4. The workflow sanitizes and resolves `FTP_HOST`.
 5. It rewrites CSS/JS URLs with the short SHA for cache busting.

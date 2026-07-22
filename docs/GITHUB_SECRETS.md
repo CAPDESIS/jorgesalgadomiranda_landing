@@ -11,6 +11,10 @@ Last updated: 2026-07-13.
 
 ## TL;DR
 
+Production deploys run only through manual `workflow_dispatch` on the trusted
+self-hosted `ci-runner-node`/`deploy-only` lane. `main` pushes validate through
+the test workflow; they do not upload files automatically.
+
 Configure 3 required FTP secrets. Optional tokens enable analytics and
 contact delivery. Contact uses **Resend** (server-side `api/secrets.php`),
 not Web3Forms.
