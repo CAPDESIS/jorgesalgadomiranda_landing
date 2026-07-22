@@ -27,7 +27,7 @@ jobs:
       - name: Audit workflows
         env:
           ENFORCE: 'false'
-          PRODUCTION_DAY: 'monday'
+          PRODUCTION_DAY: 'mon-thu'
         run: |
           set -euo pipefail
 
