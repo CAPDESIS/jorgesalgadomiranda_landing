@@ -2,12 +2,10 @@
 
 ## Latest round (2026-07-08)
 
-- `.github/workflows/deploy.yml` is now a validated main-to-production static
-  deploy pilot. It runs on landing-file `push` to `main`, daily at `13:40 UTC`,
-  and manual `workflow_dispatch`.
-- Manual dispatch still requires `release_sha`, Monday window and confirmation
-  gates; automated static deploys derive the SHA from `github.sha` and rely on
-  post-deploy asset smoke.
+- `.github/workflows/deploy.yml` is the validated direct production path for
+  this landing. It runs only by manual `workflow_dispatch` with an exact
+  `origin/main` SHA and confirmation gates; push/schedule workflows validate but
+  do not deploy.
 - Commit `bc3f382` deployed successfully in GitHub Actions run `28984333192`
   in 26 seconds. Steps passed: release context, host preflight, cache-bust,
   token injection, contact-form guard, FTPS upload and asset smoke.
