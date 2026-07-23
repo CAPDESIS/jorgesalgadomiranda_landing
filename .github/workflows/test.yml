@@ -1,9 +1,8 @@
 name: test
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  # Local-first policy: the full suite is dispatched/scheduled on trusted
+  # self-hosted capacity; production deploy remains a separate gated workflow.
   workflow_dispatch:
 
   schedule:
@@ -21,8 +20,15 @@ permissions:
 jobs:
   bun-test:
     name: bun test --coverage (>= 85% lines)
-    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '["ubuntu-latest"]' || '["self-hosted","public-only","ci-runner-node","test-light"]') }}
+    runs-on: [self-hosted, ci-runner-node, test-light]
     steps:
+      - name: Validate self-hosted runner
+        run: |
+          if [ "${{ runner.environment }}" != "self-hosted" ]; then
+            echo "::error::Landing test suite must run on a self-hosted runner"
+            exit 1
+          fi
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
