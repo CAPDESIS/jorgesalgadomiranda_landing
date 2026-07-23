@@ -49,10 +49,10 @@ other personal sites:
   plus Cloudflare at the edge for DDoS + bot fight mode.
 - **Year-aware stats.** `data-years-since` spans and JS-bound spans so
   tenure counters, copyright and CV footers never go stale.
-- **CI deploy to Hostinger.** GitHub Actions workflow with FTP host
-  sanitization, DNS preflight check, cache-busting, post-deploy asset smoke,
-  `main`/daily production deploy triggers, and a manual `lftp` fallback for
-  when Actions is unavailable.
+- **Controlled FTPS deploy to Hostinger.** GitHub Actions workflow with FTP
+  host sanitization, DNS preflight check, cache-busting, post-deploy asset
+  smoke, manual exact-`main` promotion to production, and a manual `lftp`
+  fallback for when Actions is unavailable.
 - **Accessibility first.** Skip link, `:focus-visible` rings,
   `aria-pressed` toggles, motion / pointer-coarse gates for cursor and
   tilt effects, explicit `width`/`height` on every image.
@@ -218,9 +218,10 @@ Full reasoning for each choice is in
 2. Review `.github/workflows/deploy.yml`. If your host is not
    Hostinger, adjust `server-dir` (Hostinger FTP users are chrooted to
    `public_html/`, so `./` is correct there).
-3. Push landing-file changes to `main`. CI uploads over FTPS on port 21 after
-   release context checks and asset smoke. Manual dispatch still supports an
-   exact release SHA for rollback/promotion.
+3. Trigger `workflow_dispatch` for `.github/workflows/deploy.yml` with the
+   exact `main` SHA you want to promote. Pushes and schedules validate only; the
+   FTPS upload happens from the manual production workflow after release checks
+   and asset smoke.
 4. Fallback: `cp .env.example .env`, fill in credentials, then
    `bash scripts/deploy.sh`.
 
