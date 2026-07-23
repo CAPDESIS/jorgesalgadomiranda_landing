@@ -39,16 +39,6 @@ jobs:
     runs-on: [self-hosted, ci-runner-node, deploy-only]
     environment: production
     steps:
-      - name: Enforce production release window
-        run: |
-          set -euo pipefail
-          weekday="$(TZ=America/Mexico_City date +%u)"
-          case "$weekday" in
-            1|2|3|4) ;;
-            *) echo "::error::Production deploys are allowed Monday through Thursday in America/Mexico_City only."; exit 1 ;;
-          esac
-          echo "Monday–Thursday production window confirmed (America/Mexico_City)."
-
       - name: Resolve release context
         id: release
         env:

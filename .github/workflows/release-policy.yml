@@ -27,7 +27,7 @@ jobs:
       - name: Audit workflows
         env:
           ENFORCE: 'false'
-          PRODUCTION_DAY: 'mon-thu'
+          PRODUCTION_DAY: 'weekly-manual'
         run: |
           set -euo pipefail
 
@@ -64,7 +64,7 @@ jobs:
           note "# CAPDESIS Release Policy Audit"
           note ""
           note "- Repository: \`${GITHUB_REPOSITORY}\`"
-          note "- Production release day: \`${PRODUCTION_DAY}\`"
+          note "- Production release cadence: \`weekly-manual\`"
           note "- Enforcement: \`${ENFORCE}\`"
           note ""
 
@@ -116,6 +116,13 @@ jobs:
               continue
             fi
 
+            case "$base" in
+              stage-backend-release.yml|promote-backend-production.yml|auto-deploy-backend.yml|k6-staging-smoke.yml)
+                note "- retired fail-closed staging/automatic path: $base"
+                continue
+                ;;
+            esac
+
             if [ "$is_deploy" = true ] && ! has_top_level_key "$file" "concurrency"; then
               warn "\`${base}\` is deploy-like but has no top-level \`concurrency\`. Serialize deploys to avoid overlapping releases."
             fi
@@ -132,7 +139,7 @@ jobs:
                 warn "\`${base}\` references production but has no manual \`workflow_dispatch\` entrypoint."
               fi
               if workflow_has "$file" "branches:[[:space:]]*\\[[^]]*main|branches:[[:space:]]*\\[[^]]*master|branches:" && workflow_has "$file" "push:"; then
-                warn "\`${base}\` appears to deploy from push. Production should promote a staging-validated SHA through approval."
+                warn "\`${base}\` appears to deploy from push. Production should use an exact main SHA through manual approval."
               fi
             fi
 
@@ -144,9 +151,9 @@ jobs:
           note ""
           note "## Fleet Contract"
           note ""
-          note "- Every merge to \`main\` should deploy to staging or produce a deployable artifact."
-          note "- Production promotion should use \`workflow_dispatch\`, \`environment: production\`, and a staging-validated SHA."
-          note "- Normal production releases happen on \`${PRODUCTION_DAY}\`; emergency hotfixes require explicit approval."
+          note "- Every merge to \`main\` should pass required checks and produce a deployable artifact."
+          note "- Production deploys should use \`workflow_dispatch\`, \`environment: production\`, and an exact current main SHA."
+          note "- Normal production releases are weekly/manual; emergency hotfixes require explicit approval."
           note "- Database migrations must be backward-compatible and backed up before production."
           note "- Deploy jobs must run on \`ci-runner-node\` with \`deploy-only\`, not on production app hosts."
           note ""
