@@ -20,7 +20,8 @@ permissions:
 jobs:
   bun-test:
     name: bun test --coverage (>= 85% lines)
-    runs-on: [self-hosted, ci-runner-node, test-light]
+    runs-on: [self-hosted, public-only, ci-runner-node]
+    timeout-minutes: 10
     steps:
       - name: Validate self-hosted runner
         run: |
