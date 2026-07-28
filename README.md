@@ -18,11 +18,13 @@ Most portfolio templates stop at "hero + projects + contact form". This
 one is a complete launch kit with things that are rarely considered on
 other personal sites:
 
-- **Zero build step, zero runtime.** One `index.html` (~180 KB),
-  inline CSS + inline JS, self-hosted woff2 fonts. No bundler, no
-  framework, no Node runtime. Ships as a static file over FTP.
+- **Zero build step, zero runtime.** One `index.html` (~180 KB, 2843
+  lines) plus `assets/styles.css`, `assets/i18n.js` and small modules
+  under `assets/js/` (some inline JS/CSS remains), self-hosted woff2
+  fonts. No bundler, no framework, no Node runtime. Ships as static
+  files over FTP.
 - **Bilingual with enforced parity.** ES + EN i18n dictionaries with
-  258 keys each, a Python parity check, and a token system
+  341 keys each, a Python parity check, and a token system
   (`{{yearsSince:YYYY}}`) so tenure copy re-computes itself every new
   year.
 - **Dual-theme OKLCH design system.** Theme + language toggles
@@ -142,7 +144,7 @@ template. Credit is how this stays sustainable.
 
 ```
 jorgesalgadomiranda_landing/
-├── index.html                           Self-contained landing (inline CSS + JS + i18n)
+├── index.html                           Landing page (2843 lines; links assets/styles.css + assets/i18n.js, some inline JS/CSS remains)
 ├── og.html, og.png                      Source + rendered Open Graph card
 ├── robots.txt                           Crawl policy (open to AI answer engines)
 ├── sitemap.xml                          hreflang es-MX / en
@@ -152,6 +154,9 @@ jorgesalgadomiranda_landing/
 │   ├── Jorge_Salgado_Miranda_CV_EN.html ATS-compatible CV (EN)
 │   └── Jorge_Salgado_Miranda_CV_ES.html ATS-compatible CV (ES)
 ├── assets/
+│   ├── styles.css                       Main stylesheet (linked from index.html)
+│   ├── i18n.js                          ES/EN dictionaries (341 keys each)
+│   ├── js/                              Small JS modules (consent, cookie banner, email validation, i18n utils, welcome modal)
 │   └── cv/                              Rendered PDFs (built by scripts/build-cv-pdfs.sh)
 ├── fonts/                               Self-hosted woff2 (Instrument Serif, Geist, Geist Mono)
 ├── scripts/
