@@ -17,7 +17,7 @@ concurrency:
 jobs:
   gitleaks:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, public-only, ci-runner-node, test-light]
+    runs-on: [self-hosted, public-only, ci-runner-node]
     steps:
       - uses: actions/checkout@v6
         with:
