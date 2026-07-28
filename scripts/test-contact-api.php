@@ -295,7 +295,20 @@ $server = proc_open(
     $env
 );
 jsm_test_track_process($server);
-usleep(250000);
+$serverReady = false;
+for ($i = 0; $i < 50; $i++) {
+    usleep(100000);
+    $fp = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
+    if ($fp) {
+        fclose($fp);
+        $serverReady = true;
+        break;
+    }
+}
+if (!$serverReady) {
+    fwrite(STDERR, "ERROR: contact test server did not become ready on 127.0.0.1:{$port} after 50 attempts (last error: {$errstr})\n");
+    exit(1);
+}
 
 $payload = http_build_query([
     'name' => 'Jorge Salgado',
