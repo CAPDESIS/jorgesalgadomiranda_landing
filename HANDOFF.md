@@ -1,5 +1,11 @@
 # Session Handoff, 2026-07-08
 
+> **BANNER DE SNAPSHOT / HISTÓRICO (2026-07-22):** el primer bloque de este
+> handoff conserva la configuración que existía el 2026-07-08. El workflow
+> vigente `.github/workflows/deploy.yml` es manual (`workflow_dispatch`), exige
+> `release_sha` exacto y aplica las compuertas del flujo de producción; no se
+> debe interpretar este snapshot como evidencia de push/schedule automático.
+
 ## Latest round (2026-07-08)
 
 - `.github/workflows/deploy.yml` is the validated direct production path for

@@ -1,13 +1,21 @@
 # Architecture
 
-The site is **one self-contained HTML file** with inline CSS, JavaScript, and
-i18n dictionaries. No build step, no bundler, no framework. The file size is
-roughly 150 KB before image assets and font requests.
+The site is a **zero-build static landing** centered on `index.html`, with
+styling and part of the runtime extracted into self-hosted assets:
+`assets/styles.css`, `assets/i18n.js`, and helper scripts under `assets/js/`.
+`index.html` still keeps a few inline bootstraps and page-specific wiring IIFEs.
+No build step, no bundler, no framework.
 
-The decision to keep everything in one file is deliberate. It eliminates a
-class of issues (cache desync, asset 404s, build server downtime) that
+The decision to keep the site zero-build is deliberate. It eliminates a class
+of issues (build server downtime, framework churn, asset indirection) that
 plagued the original Zyro template the site grew out of. Anyone can open
-`index.html` in a browser and see the same thing the production server serves.
+`index.html` in a browser and inspect the same document structure production
+serves.
+
+Historical note: earlier revisions were truly single-file with inline CSS, JS,
+and dictionaries. The current layout keeps the same operating model while
+moving reusable CSS/JS into self-hosted assets so they can be tested, cache-
+busted, and reused more safely.
 
 ## Page structure
 
@@ -15,7 +23,8 @@ plagued the original Zyro template the site grew out of. Anyone can open
 <html data-theme="dark|light" data-lang="es|en">
   <head>
     SEO meta, JSON-LD Person schema, Open Graph, Twitter card,
-    favicon (data URI SVG), Google Fonts (non-blocking)
+    favicon (data URI SVG), preconnect/preload hints,
+    <link rel="stylesheet" href="assets/styles.css">
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -47,8 +56,13 @@ plagued the original Zyro template the site grew out of. Anyone can open
 
     <footer>…</footer>
 
-    <script>I18N = { en: {…}, es: {…} }; Object.freeze(I18N);</script>
+    <script src="assets/i18n.js"></script>
+    <script src="assets/js/i18n-utils.js"></script>
+    <script src="assets/js/welcome-modal.js"></script>
+    <script src="assets/js/email-validation.js"></script>
     <script>main app: theme, lang, cursor, magnetic, tilt, reveal, scroll</script>
+    <script src="assets/js/cookie-banner.js"></script>
+    <script>cookie banner DOM wiring IIFE</script>
   </body>
 </html>
 ```
@@ -79,8 +93,25 @@ Light theme overrides only the color tokens, keeps everything else identical.
 
 ## JavaScript modules
 
-The single inline `<script>` block runs on `DOMContentLoaded` and sets up
-seven small modules in this order. Each one is independent.
+The runtime is split between extracted helper files and two inline IIFEs in
+`index.html`. Load order matters because the inline scripts consume contracts
+attached to `window` by the extracted files.
+
+1. **`assets/js/consent.js`**: loaded near the top of `index.html` so consent
+   state is available before analytics bootstraps.
+2. **`assets/i18n.js`**: publishes the frozen EN/ES dictionaries on
+   `window.__I18N__`.
+3. **`assets/js/i18n-utils.js`**: shared translation helpers consumed by the
+   landing runtime.
+4. **`assets/js/welcome-modal.js`**: modal timing/state helpers.
+5. **`assets/js/email-validation.js`**: disposable-domain list, regex, and the
+   `validateEmail()` decision used by the contact form.
+6. **Main inline app IIFE**: runs on `DOMContentLoaded` and sets up the page
+   interactions below.
+7. **`assets/js/cookie-banner.js` + trailing inline IIFE**: cookie-banner copy,
+   persistence, and DOM event wiring.
+
+Inside the main inline app IIFE, the landing initializes these behaviors:
 
 1. **Copyright year**: sets the footer year from `new Date().getFullYear()`
    so it never goes stale.
@@ -107,7 +138,8 @@ seven small modules in this order. Each one is independent.
 
 ## i18n
 
-The dictionary lives inline in the same file:
+The dictionary lives in `assets/i18n.js` and is loaded before the main app
+script:
 
 ```js
 const I18N = {
@@ -145,9 +177,9 @@ The current dictionary has **202 keys per language**, in perfect parity.
 
 ## Performance
 
-- Single HTML file, no external CSS/JS to fetch
-- Google Fonts loaded with `media="print" onload` so it doesn't block
-  first paint, with a `<noscript>` fallback
+- One HTML entrypoint with self-hosted CSS/JS assets; no bundler output tree
+- `assets/styles.css`, `assets/i18n.js`, and the helper scripts are requested
+  directly from stable paths the deploy workflow cache-busts by SHA
 - `preconnect` hints for Capdesis image hosts still hotlinked from cards
   (`capdesis.com`); partner/skill/portrait assets are self-hosted under
   `assets/` (Zyrosite CDN retired after 2026-07-13 404s)
