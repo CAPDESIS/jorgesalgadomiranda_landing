@@ -8,19 +8,20 @@ guesswork.
 ## Runtime (the deployed website)
 
 ### Vanilla HTML, CSS, JavaScript
-The whole site is one `index.html` with inline `<style>` and `<script>` tags.
-- Why: no build step, no bundler, no framework, no dependency upgrades to
-  chase. The site loads in one round trip and renders without JavaScript.
-- How: edit `index.html` directly. There is no transpilation; the browser
-  reads what you write.
+The site ships as static first-party files: `index.html`,
+`assets/styles.css`, `assets/i18n.js`, CV HTML/PDF assets, fonts, and SEO
+files.
+- Why: no bundler, no framework runtime, no server process, and no asset
+  compilation step. The browser reads committed files directly.
+- How: edit `index.html`, `assets/styles.css`, and `assets/i18n.js`
+  directly, then run `bun run build` to execute the static validator.
 
-### Google Fonts: Instrument Serif + Geist + Geist Mono
+### Self-hosted fonts: Instrument Serif + Geist + Geist Mono
 - Why: Instrument Serif gives the editorial weight to titles. Geist is a
   sharp neo-grotesque designed by Vercel; reads cleanly at any size. Geist
   Mono carries kickers, code, and stat labels.
-- How: loaded via `<link rel="stylesheet" media="print" onload="this.media='all'">`
-  with a `<noscript>` fallback. Non-blocking; the page paints with system
-  fonts first, then upgrades.
+- How: served from local `fonts/*.woff2` files with `@font-face`
+  declarations in `assets/styles.css` and preload hints in `index.html`.
 
 ### OKLCH + color-mix
 - Why: predictable perceptual lightness across the whole gamut, makes
@@ -75,9 +76,10 @@ block deploys that reintroduce Zyrosite hotlinks or missing local files.
 ### lftp
 - Why: parallel, resumable FTP mirror with exclude globs. Hostinger only
   exposes FTP; lftp handles concurrency and incremental upload cleanly.
-- How: `bun run deploy` calls `scripts/deploy.sh`, which runs `lftp -u
-  ${FTP_USER},${FTP_PASS} ${FTP_HOST}` with a `mirror --reverse --delete`
-  command.
+- How: `RELEASE_SHA=<40-char-main-sha> bun run deploy` calls
+  `scripts/deploy.sh`, verifies the SHA is on `origin/main`, extracts a
+  clean `git archive`, injects deploy-time public tokens, and runs `lftp`
+  with a `mirror --reverse --delete` command.
 - Install: `brew install lftp`
 
 ### Python `http.server`
@@ -122,6 +124,6 @@ messages, not changelogs. Every commit is authored as
 keep history consistent.
 
 ### GitHub
-Repo lives at `github.com/chochy2001/jorgesalgadomiranda_landing`. SSH
-remote, push to `main` deploys nothing automatically (CI/CD is intentional
-manual via FTP for now).
+Repo lives at `github.com/CAPDESIS/jorgesalgadomiranda_landing`. SSH
+remote. Pushes to `main` run validation, secret scanning, and release-policy
+checks; production deploy remains a manual SHA promotion via FTP.

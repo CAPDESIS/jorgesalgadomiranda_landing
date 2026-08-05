@@ -1,11 +1,10 @@
 name: gitleaks
 on:
+  pull_request:
+  push:
+    branches: [main, master]
   workflow_dispatch:
 
-  schedule:
-    # Local-first policy: PR/push validation runs on the developer machine.
-    # Remote CI is manual or staggered daily to avoid runner bottlenecks.
-    - cron: '30 11 * * *'
 permissions:
   contents: read
   security-events: write
@@ -17,28 +16,27 @@ concurrency:
 jobs:
   gitleaks:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, public-only, ci-runner-node]
+    runs-on: [self-hosted, public-only, ci-runner-node, test-light]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           fetch-depth: 0
       - name: Install gitleaks
         run: |
           set -euo pipefail
-          GITLEAKS_VERSION="8.24.0"
-          TARBALL="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          BASE_URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
-          wget -q "${BASE_URL}/${TARBALL}"
-          wget -q "${BASE_URL}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-          sha256sum --ignore-missing --check "gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-          tar xzf "${TARBALL}" gitleaks
+          GITLEAKS_VERSION="8.30.1"
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          archive_sha256="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+          base_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -fsSL -o "$archive" "${base_url}/${archive}"
+          printf '%s  %s\n' "$archive_sha256" "$archive" | sha256sum -c -
+          tar xzf "$archive"
           chmod +x gitleaks
-          rm "${TARBALL}" "gitleaks_${GITLEAKS_VERSION}_checksums.txt"
       - name: Run gitleaks
-        run: ./gitleaks detect --source . --config .gitleaks.toml --redact --no-banner --report-format sarif --report-path gitleaks.sarif --exit-code 1
+        run: ./gitleaks detect --source . --config .gitleaks.toml --report-format sarif --report-path gitleaks.sarif --exit-code 1
       - name: Upload SARIF
         if: always()
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357
         with:
           sarif_file: gitleaks.sarif
