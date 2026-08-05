@@ -3,7 +3,7 @@
   ─────────────────────────────────────────────────────────────
   Jorge Salgado Miranda · Portfolio
   Originally built at https://jorgesalgadomiranda.com/
-  Source: https://github.com/chochy2001/jorgesalgadomiranda_landing
+  Source: https://github.com/CAPDESIS/jorgesalgadomiranda_landing
   Free to fork. Attribution appreciated.
   ─────────────────────────────────────────────────────────────
 -->
@@ -2086,8 +2086,11 @@
     });
     localStorage.setItem('lang', lang);
   };
+  const urlLang = new URLSearchParams(window.location.search).get('lang');
   const savedLang = localStorage.getItem('lang');
-  const initLang = savedLang || ((navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en');
+  const initLang = (urlLang === 'en' || urlLang === 'es')
+    ? urlLang
+    : (savedLang || ((navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en'));
   applyLang(initLang);
   const langToggle = document.getElementById('lang-toggle');
   const syncLangAria = () => {
@@ -2631,7 +2634,7 @@
 
   // ============ ATTRIBUTION SIGNATURE ============
   // Visible to anyone who opens DevTools. Please keep this if you fork.
-  // Source: https://github.com/chochy2001/jorgesalgadomiranda_landing.
+  // Source: https://github.com/CAPDESIS/jorgesalgadomiranda_landing.
   try {
     console.info(
       '%cBuilt by Jorge Salgado Miranda%c · jorgesalgadomiranda.com',

@@ -49,7 +49,7 @@
 <FilesMatch "^\.(git|env|htaccess|htpasswd)">
   Require all denied
 </FilesMatch>
-<FilesMatch "^(package\.json|bun\.lockb|package-lock\.json|README\.md|og\.html|CLAUDE\.md)$">
+<FilesMatch "(\.(md|markdown)$|^(package\.json|bun\.lockb|package-lock\.json|og\.html)$)">
   Require all denied
 </FilesMatch>
 # Never serve contact secrets or PHP helpers directly.

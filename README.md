@@ -80,7 +80,7 @@ try:
 ## Quick start (local preview)
 
 ```bash
-git clone https://github.com/chochy2001/jorgesalgadomiranda_landing.git
+git clone https://github.com/CAPDESIS/jorgesalgadomiranda_landing.git
 cd jorgesalgadomiranda_landing
 python3 -m http.server 8765 --bind 127.0.0.1
 open http://127.0.0.1:8765/
