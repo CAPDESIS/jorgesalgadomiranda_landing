@@ -11,6 +11,7 @@ on:
     - cron: '30 11 * * *'
 
   pull_request:
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
