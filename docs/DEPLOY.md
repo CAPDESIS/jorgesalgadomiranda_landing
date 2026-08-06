@@ -11,12 +11,15 @@ path:
 
 ## Current production pilot status
 
-As of 2026-07-22, `.github/workflows/deploy.yml` is the direct
-main-to-production path:
+As of 2026-07-22, `.github/workflows/deploy.yml` is the only
+production-deploy path:
 
-- Pushes and schedules do not deploy automatically.
+- Pushes to `main` and daily schedules do not deploy automatically. They run
+  validation/audit workflows only.
 - `workflow_dispatch` requires an exact SHA contained in `origin/main`, green
   validation, no known P0/P1 alerts, and backup confirmation (`yes` or `n/a`).
+- Production deploys are allowed Monday through Thursday in
+  `America/Mexico_City`.
 - The deployment runs on the trusted self-hosted `deploy-only` runner and keeps
   the production environment/concurrency lock.
 - Run `28984333192` on commit `bc3f382` passed in 26 seconds: release context,
@@ -57,13 +60,15 @@ them as `${{ secrets.FTP_HOST }}`, etc.
 ### How it runs
 
 Trigger it manually from the Actions tab using the "Run workflow" button. The
-workflow is registered with `workflow_dispatch` only.
+workflow is registered with `workflow_dispatch` only; `push` and scheduled jobs
+live in other workflow files and do not publish to production.
 
 Flow:
 1. The workflow resolves the exact `release_sha` input and verifies that it is
    contained in `origin/main`.
 2. The operator confirms release health, known P0/P1 status and backup state;
-   there is no Monday-only or staging gate.
+   production is gated to Monday-Thursday in `America/Mexico_City`, and there
+   is currently no separate staging deploy workflow in this repo.
 3. `actions/checkout@v6` pulls the selected SHA.
 4. The workflow sanitizes and resolves `FTP_HOST`.
 5. It rewrites CSS/JS URLs with the short SHA for cache busting.
@@ -244,4 +249,6 @@ Defense-in-depth for a static site:
 - [ ] Smoke test on `http://127.0.0.1:8765` passes
 - [ ] i18n parity unchanged or improved (run the `EN={n}, ES={n}` Python
       check from `CHANGELOG.md` examples)
-- [ ] Commit, push to `main`, watch the Actions tab
+- [ ] Push to `main` if you want the validation workflow to run on that commit
+- [ ] Trigger the manual deploy workflow from the Actions tab with the exact
+      release SHA you want to promote
