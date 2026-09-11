@@ -111,15 +111,16 @@ robots_meta = index.first("meta", name="robots")
 if not robots_meta or "index" not in robots_meta.get("content", ""):
     fail("index.html must explicitly allow indexing.")
 
-access_key = index.first("input", name="access_key")
-if not access_key or "YOUR_WEB3FORMS_ACCESS_KEY" not in access_key.get("value", ""):
-    fail("index.html must keep the Web3Forms placeholder for deploy-time secret injection.")
+index_source = (ROOT / "index.html").read_text(encoding="utf-8")
+if "web3forms" in index_source.lower() or "YOUR_WEB3FORMS" in index_source:
+    fail("index.html must not reference Web3Forms; contact posts to /api/contact.php.")
+if "/api/contact.php" not in index_source:
+    fail("index.html must post contact to /api/contact.php.")
 
 for asset in ("assets/styles.css", "assets/i18n.js"):
     if asset not in (ROOT / "index.html").read_text(encoding="utf-8"):
         fail(f"index.html must reference {asset}.")
 
-index_source = (ROOT / "index.html").read_text(encoding="utf-8")
 if "new URLSearchParams(window.location.search).get('lang')" not in index_source:
     fail("index.html must honor ?lang=es/en so hreflang alternates are deterministic.")
 
@@ -162,6 +163,16 @@ for page in [
         fail(f"{page} must contain an html root.")
     if not parsed.title:
         fail(f"{page} must contain a title.")
+
+hex_token = re.compile(r"--[a-z0-9-]+:\s*#[0-9a-fA-F]{3,8}\b")
+for aux_page in ["404.html", "legal/privacy.html", "legal/terms.html"]:
+    aux_source = (ROOT / aux_page).read_text(encoding="utf-8")
+    if not re.search(r'href="/assets/styles\.css(?:\?[^"]*)?"', aux_source):
+        fail(f"{aux_page} must link the site stylesheet at /assets/styles.css.")
+    if hex_token.search(aux_source.split("<body", 1)[0]):
+        fail(f"{aux_page} must not declare loose hex palette tokens in the document head.")
+    if "data-surface=\"aux\"" not in aux_source:
+        fail(f"{aux_page} must declare data-surface=aux so site tokens apply.")
 
 for cv_page in [
     "cv/Jorge_Salgado_Miranda_CV_EN.html",
