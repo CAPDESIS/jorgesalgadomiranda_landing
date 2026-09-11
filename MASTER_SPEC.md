@@ -195,8 +195,9 @@ This file documents the current static portfolio/lead-generation site at
 
 - Public analytics/contact tokens may be injected at deploy time.
 - Do not commit private FTP credentials or `.env` files.
-- `WEB3FORMS_ACCESS_KEY` is required for production. GitHub Actions and the
-  local fallback fail closed instead of publishing a dead contact form.
+- Contact posts to same-origin `/api/contact.php`. Resend (or SMTP fallback)
+  is injected into `api/secrets.php` at deploy; never commit that file.
+  GitHub Actions fail closed if Web3Forms leftovers reappear in HTML.
 
 ## Validation Commands
 

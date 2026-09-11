@@ -4,7 +4,7 @@ Single source of truth for the visual and interaction vocabulary of
 `jorgesalgadomiranda.com`. If something in the site does not match this
 document, the site is wrong, not the document.
 
-Last updated: 2026-04-20.
+Last updated: 2026-09-11.
 
 ---
 
@@ -12,6 +12,8 @@ Last updated: 2026-04-20.
 
 All tokens live in `assets/styles.css` inside `:root` and
 `[data-theme="light"]`. Never introduce ad-hoc colors or spacing.
+Legal pages and the 404 surface load that stylesheet
+(`html[data-surface="aux"]`) instead of a private hex palette.
 
 ### Colors
 
