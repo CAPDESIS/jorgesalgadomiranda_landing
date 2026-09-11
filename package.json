@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "bunx serve . -l 3000",
-    "build": "echo 'Static site, no build step required'",
+    "lint": "python3 scripts/validate-static-site.py",
+    "build": "python3 scripts/validate-static-site.py",
     "deploy": "bash scripts/deploy.sh",
     "check:assets": "python3 scripts/check-local-assets.py",
     "test": "bun test --coverage",

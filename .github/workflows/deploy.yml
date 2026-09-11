@@ -166,6 +166,7 @@ jobs:
           # committed back to the repo.
           V="${SHA:0:7}"
           sed -i -E "s#href=\"assets/styles\.css\"#href=\"assets/styles.css?v=${V}\"#g" index.html
+          sed -i -E "s#href=\"/assets/styles\.css\"#href=\"/assets/styles.css?v=${V}\"#g" 404.html legal/privacy.html legal/terms.html
           sed -i -E "s#src=\"assets/i18n\.js\"#src=\"assets/i18n.js?v=${V}\"#g" index.html
           # Extracted JS modules under assets/js/ (email validation, consent,
           # cookie banner, i18n helpers, welcome modal) need the same
@@ -279,6 +280,7 @@ jobs:
             **/node_modules/**
             **/scripts/**
             **/docs/**
+            **/audits/**
             **/tests/**
             **/coverage/**
             **/.env
