@@ -20,6 +20,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   bun-test:
     name: bun test --coverage (>= 85% lines)
@@ -37,6 +40,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Lint and build
+        run: bun run lint && bun run build
 
       - name: Run tests with coverage
         run: bun test --coverage

@@ -89,7 +89,10 @@ open http://127.0.0.1:8765/
 No dependencies, no `npm install`. If you prefer bun:
 
 ```bash
-bun run dev      # same as above, wraps python3's http.server
+bun run dev      # local static preview (bunx serve)
+bun run lint     # static-site validator (canonical, hreflang, i18n parity)
+bun run build    # same validator; there is no bundler
+bun test         # bun test --coverage
 bun run deploy   # manual FTP upload via scripts/deploy.sh (needs .env)
 ```
 

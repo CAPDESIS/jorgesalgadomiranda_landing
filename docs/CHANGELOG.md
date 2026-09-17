@@ -4,6 +4,17 @@ Reverse-chronological log of what shipped, why, and what to verify next time.
 
 ---
 
+## 2026-09-11: Legal and 404 consume site tokens
+
+Privacy, Terms, and 404 now link `/assets/styles.css` and keep their
+document chrome. Loose hex `--ink` / `--paper` palettes are gone.
+`bun run lint` and `bun run build` run the static validator. GitHub
+Actions force Node 24. Contact validation no longer requires Web3Forms.
+See `audits/2026-09-11-ola.md` (`9bc232f` plus this docs commit).
+Live HTML was not redeployed in this change.
+
+---
+
 ## 2026-04-19: Open Source section (OmniMon + GitHub)
 
 **New section 06: Open Source** between Engineering and Certifications.
