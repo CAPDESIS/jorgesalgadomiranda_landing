@@ -17,7 +17,8 @@ duplicating any UI, check its catalog: `capdesis-ui/COMPONENTS.md`.
   status badges, cards, avatars, dialogs, toggles, loading states, layout
   scaffolds, and more.
 - **Consume** these instead of re-implementing UI. Pin the release tag (current
-  `v0.2.0`) and bump it to pick up newer components fleet-wide.
+  `v0.3.6`; rollback `v0.3.5`) and bump it to pick up newer components
+  fleet-wide. Do not pin `v0.2.0`: it is a July 2026 snapshot.
 - If a component you need is **missing**, EXTRACT it into capdesis-ui (so every
   app gets it) rather than hand-rolling a one-off copy here.
 
