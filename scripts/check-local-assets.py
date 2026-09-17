@@ -102,7 +102,15 @@ def check_missing_local_assets(files: list[Path]) -> list[str]:
             continue
         for match in LOCAL_REF_RE.finditer(text):
             raw = match.group("path").strip()
-            candidate = (path.parent / raw).resolve()
+            # Root-absolute refs (/assets/..., /fonts/...) are served from the
+            # site root, so they resolve against ROOT and never against the
+            # directory of the file that references them. Resolving them with
+            # path.parent would escape the repo (filesystem "/assets/...") and
+            # report every legal/ and 404 reference as missing.
+            if raw.startswith("/"):
+                candidate = (ROOT / raw.lstrip("/")).resolve()
+            else:
+                candidate = (path.parent / raw).resolve()
             try:
                 rel = candidate.relative_to(ROOT)
             except ValueError:

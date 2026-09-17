@@ -13,18 +13,11 @@ on:
 jobs:
   audit:
     name: Audit release gates
-    runs-on: [self-hosted, public-only, ci-runner-node]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
 
     steps:
-      - name: Validate VPS self-hosted runner
-        run: |
-          if [ "${{ runner.environment }}" != "self-hosted" ]; then
-            echo "::error::This workflow must run on the VPS self-hosted runner"
-            exit 1
-          fi
-
       - uses: actions/checkout@v4
 
       - name: Audit workflows

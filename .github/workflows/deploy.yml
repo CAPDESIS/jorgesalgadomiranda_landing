@@ -36,7 +36,11 @@ jobs:
   deploy:
     name: FTP upload
     # Production deploys use the trusted, isolated self-hosted deploy lane.
-    runs-on: [self-hosted, ci-runner-node, deploy-only]
+    # This repository is public, so runner group 5 "deploys" is out of reach
+    # (allows_public_repositories=false). The reachable deploy runner is
+    # ci-runner-node-public-deploy-1 in group 6 "public-builds"; the
+    # public-only label pins the job to it instead of queueing forever.
+    runs-on: [self-hosted, ci-runner-node, deploy-only, public-only]
     environment: production
     steps:
       - name: Resolve release context

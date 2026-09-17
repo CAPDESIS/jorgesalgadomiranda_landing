@@ -20,7 +20,7 @@ jobs:
   validate:
     name: Static site validation
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, public-only, ci-runner-node, test-light]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -43,5 +43,17 @@ jobs:
             echo "::error::invalid RELEASE_SHA unexpectedly passed"
             exit 1
           fi
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION="1.7.7"
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          archive_sha256="023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+          base_url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          curl -fsSL -o "$archive" "${base_url}/${archive}"
+          printf '%s  %s\n' "$archive_sha256" "$archive" | sha256sum -c -
+          tar xzf "$archive" actionlint
+          chmod +x actionlint
+          rm -f "$archive"
       - name: Validate GitHub Actions workflows
-        run: actionlint -config-file .github/actionlint.yaml
+        run: ./actionlint -config-file .github/actionlint.yaml
