@@ -74,7 +74,17 @@ jobs:
             # about the deploy workflow, and matching that raised a false
             # "references production but does not declare environment:
             # production" warning on a workflow that never deploys anything.
-            sed -E 's/(^|[[:space:]])#.*$//' "$file" | grep -Eiq "$pattern"
+            #
+            # The stripped text is captured first and matched through a
+            # here-string on purpose. Piping sed into "grep -q" looks
+            # equivalent but is not: grep exits at the first match, sed then
+            # dies of SIGPIPE writing the rest of the file, and under
+            # "set -o pipefail" the pipeline reports 141 so a real match reads
+            # as no match. That silently inverted the public-only check and
+            # would have weakened every other rule in this audit.
+            local stripped
+            stripped="$(sed -E 's/(^|[[:space:]])#.*$//' "$file")"
+            grep -Eiq "$pattern" <<< "$stripped"
           }
 
           note "# CAPDESIS Release Policy Audit"

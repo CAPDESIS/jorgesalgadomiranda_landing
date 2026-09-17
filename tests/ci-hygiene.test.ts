@@ -1,5 +1,6 @@
-import { describe, expect, test } from 'bun:test';
-import { readdirSync, readFileSync } from 'node:fs';
+import { afterAll, describe, expect, test } from 'bun:test';
+import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..');
@@ -156,3 +157,73 @@ describe('fleet runner policy for a public repository', () => {
     expect(src).toMatch(/ENFORCE:\s*'true'/);
   });
 });
+
+describe('release policy audit matcher survives an early grep exit', () => {
+  // Regression for run 35266096868: workflow_has piped sed into "grep -Eiq".
+  // grep exits at the first match, sed then dies of SIGPIPE writing the rest
+  // of the file, and under "set -o pipefail" the pipeline reports 141, so a
+  // real match read as no match. The audit then claimed deploy.yml omitted
+  // public-only when the label was right there on the runs-on line. This test
+  // runs the function exactly as the workflow ships it.
+  const SRC = read('.github/workflows/release-policy.yml');
+
+  function extractWorkflowHas(): string {
+    const lines = SRC.split('\n');
+    const start = lines.findIndex((line) => line.trim().startsWith('workflow_has()'));
+    expect(start).toBeGreaterThan(-1);
+    const indent = lines[start].length - lines[start].trimStart().length;
+    const end = lines.findIndex((line, i) => i > start && line === `${' '.repeat(indent)}}`);
+    expect(end).toBeGreaterThan(start);
+    return lines
+      .slice(start, end + 1)
+      .map((line) => line.slice(indent))
+      .join('\n');
+  }
+
+  function runMatcher(fixture: string, pattern: string): { code: number; out: string } {
+    const harness = join(tmpdir(), `workflow-has-${Date.now()}-${Math.random()}.sh`);
+    writeFileSync(
+      harness,
+      ['set -euo pipefail', extractWorkflowHas(), `if workflow_has "$1" "$2"; then echo MATCH; else echo NOMATCH; fi`].join(
+        '\n',
+      ),
+      'utf8',
+    );
+    try {
+      const proc = Bun.spawnSync(['bash', harness, fixture, pattern]);
+      return { code: proc.exitCode ?? 1, out: proc.stdout.toString().trim() };
+    } finally {
+      rmSync(harness, { force: true });
+    }
+  }
+
+  const fixture = join(tmpdir(), `release-policy-fixture-${Date.now()}.yml`);
+
+  afterAll(() => {
+    rmSync(fixture, { force: true });
+  });
+
+  test('a match on the first line of a large file still reports a match', () => {
+    // The match must sit far ahead of the end of the file so grep exits long
+    // before sed is done. A short fixture passes even with the broken pipe.
+    writeFileSync(fixture, `    runs-on: [self-hosted, deploy-only, public-only]\n${'a: 1\n'.repeat(200000)}`, 'utf8');
+    const result = runMatcher(fixture, 'public-only');
+    expect(result.out).toBe('MATCH');
+    expect(result.code).toBe(0);
+  });
+
+  test('a genuine absence still reports no match', () => {
+    writeFileSync(fixture, `    runs-on: [self-hosted, deploy-only]\n${'a: 1\n'.repeat(200000)}`, 'utf8');
+    expect(runMatcher(fixture, 'public-only').out).toBe('NOMATCH');
+  });
+
+  test('a term that appears only inside a comment does not match', () => {
+    writeFileSync(fixture, '# this note mentions production\njobs:\n  build:\n    runs-on: ubuntu-latest\n', 'utf8');
+    expect(runMatcher(fixture, 'production').out).toBe('NOMATCH');
+  });
+
+  test('a term on a real line still matches when a comment follows it', () => {
+    writeFileSync(fixture, '    environment: production # deploy target\n', 'utf8');
+    expect(runMatcher(fixture, 'environment:[[:space:]]*production').out).toBe('MATCH');
+  });
+})
