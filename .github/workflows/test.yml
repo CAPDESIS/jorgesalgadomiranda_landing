@@ -23,16 +23,9 @@ permissions:
 jobs:
   bun-test:
     name: bun test --coverage (>= 85% lines)
-    runs-on: [self-hosted, public-only, ci-runner-node]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Validate self-hosted runner
-        run: |
-          if [ "${{ runner.environment }}" != "self-hosted" ]; then
-            echo "::error::Landing test suite must run on a self-hosted runner"
-            exit 1
-          fi
-
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
