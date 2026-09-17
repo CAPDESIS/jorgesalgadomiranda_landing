@@ -125,5 +125,29 @@ keep history consistent.
 
 ### GitHub
 Repo lives at `github.com/CAPDESIS/jorgesalgadomiranda_landing`. SSH
-remote. Pushes to `main` run validation, secret scanning, and release-policy
-checks; production deploy remains a manual SHA promotion via FTP.
+remote. Production deploy remains a manual SHA promotion via FTP.
+
+All four CI workflows run on GitHub-hosted `ubuntu-latest`, which is the fleet
+rule for public repos. What actually runs, verified against the workflow files
+on 2026-09-17:
+
+| Workflow | Triggers |
+|----------|----------|
+| `ci.yml` | `push` to `main` and `pull_request` to `main` |
+| `gitleaks.yml` | `push` to `main`/`master`, `pull_request` to `main`, `workflow_dispatch` |
+| `test.yml` | `push` to `main`, `pull_request` to `main`, `workflow_dispatch`, daily `schedule` |
+| `release-policy.yml` | `workflow_dispatch` and a daily `schedule` only, **not** push and **not** pull request |
+
+"Secret scanning" here means the **gitleaks** job, a scanner that runs inside
+the workflow. GitHub's own secret scanning is a different thing and it is
+**disabled** on this repository:
+`gh api repos/CAPDESIS/jorgesalgadomiranda_landing --jq
+.security_and_analysis.secret_scanning.status` returns `disabled`, as do
+`secret_scanning_push_protection` and `dependabot_security_updates`. This repo
+is public, so those toggles are free to turn on; nobody has.
+
+A repository ruleset does protect `main` here, unlike the private repos of the
+org: `gh api repos/CAPDESIS/jorgesalgadomiranda_landing/rulesets` lists
+`local-first-main-safety`, and a direct push to `main` is rejected with
+`GH013 ... Required status check "bun test --coverage (>= 85% lines)" is
+expected`. Land changes through a pull request.
