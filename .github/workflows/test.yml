@@ -13,6 +13,12 @@ on:
   pull_request:
     branches: [main]
 
+  # main is the release source: every commit that lands here must clear the
+  # same coverage gate the pull request cleared, otherwise a merge commit or a
+  # direct push reaches the deploy candidate unvalidated.
+  push:
+    branches: [main]
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

@@ -22,13 +22,28 @@ jobs:
 
       - name: Audit workflows
         env:
-          ENFORCE: 'false'
+          ENFORCE: 'true'
           PRODUCTION_DAY: 'weekly-manual'
+          REPO_IS_PRIVATE: ${{ github.event.repository.private }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
           findings=0
           warnings=0
+
+          # Runner policy depends on repository visibility. The event payload
+          # carries it for workflow_dispatch and schedule; fall back to the API
+          # rather than guessing, because guessing wrong either hides a real
+          # violation or invents one.
+          repo_is_private="${REPO_IS_PRIVATE:-}"
+          if [ "$repo_is_private" != "true" ] && [ "$repo_is_private" != "false" ]; then
+            repo_is_private="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.private')"
+          fi
+          if [ "$repo_is_private" != "true" ] && [ "$repo_is_private" != "false" ]; then
+            echo "::error::Could not resolve repository visibility; refusing to audit runner policy on a guess."
+            exit 1
+          fi
           summary="${GITHUB_STEP_SUMMARY:-/tmp/release-policy-summary.md}"
 
           note() {
@@ -54,13 +69,19 @@ jobs:
           workflow_has() {
             local file="$1"
             local pattern="$2"
-            grep -Eiq "$pattern" "$file"
+            # Strip YAML comments before matching. Prose in a comment is not a
+            # policy signal: test.yml only mentions "production" inside a note
+            # about the deploy workflow, and matching that raised a false
+            # "references production but does not declare environment:
+            # production" warning on a workflow that never deploys anything.
+            sed -E 's/(^|[[:space:]])#.*$//' "$file" | grep -Eiq "$pattern"
           }
 
           note "# CAPDESIS Release Policy Audit"
           note ""
           note "- Repository: \`${GITHUB_REPOSITORY}\`"
           note "- Production release cadence: \`weekly-manual\`"
+          note "- Repository is private: \`${repo_is_private}\`"
           note "- Enforcement: \`${ENFORCE}\`"
           note ""
 
@@ -139,8 +160,23 @@ jobs:
               fi
             fi
 
-            if workflow_has "$file" "runs-on:[[:space:]]*ubuntu-latest"; then
-              warn "\`${base}\` still uses \`ubuntu-latest\`. Linux CI should prefer \`[self-hosted, ci-runner-node, ...]\` unless intentionally cloud-hosted."
+            # Fleet runner policy: private repositories are pinned 100%
+            # self-hosted; public repositories run CI on GitHub hosted runners
+            # and keep deploys on the self-hosted deploy lane. A blanket
+            # "ubuntu-latest is wrong" rule contradicted that policy and warned
+            # on every CI workflow of this public repo.
+            if workflow_has "$file" "runs-on:[[:space:]]*['\"]?(ubuntu|macos|windows|blacksmith)-"; then
+              if [ "$repo_is_private" = "true" ]; then
+                fail "\`${base}\` runs on a GitHub hosted runner. Private repositories are pinned 100% self-hosted."
+              elif [ "$is_deploy" = true ]; then
+                fail "\`${base}\` is deploy-like but runs on a GitHub hosted runner. Deploys must stay on the self-hosted deploy lane."
+              else
+                note "- OK: \`${base}\` runs CI on a GitHub hosted runner, which is the policy for a public repository."
+              fi
+            elif [ "$is_deploy" = true ] && [ "$repo_is_private" = "false" ]; then
+              if ! workflow_has "$file" "public-only"; then
+                fail "\`${base}\` is a deploy workflow in a public repository but its runner labels omit \`public-only\`. Runner group \`deploys\` refuses public repositories, so the job would queue forever."
+              fi
             fi
           done
 
