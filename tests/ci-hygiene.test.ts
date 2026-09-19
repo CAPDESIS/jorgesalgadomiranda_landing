@@ -227,3 +227,127 @@ describe('release policy audit matcher survives an early grep exit', () => {
     expect(runMatcher(fixture, 'environment:[[:space:]]*production').out).toBe('MATCH');
   });
 })
+
+describe('post-deploy smoke test only tolerates the documented Cloudflare 403', () => {
+  // Regresion: el paso trataba "cualquier codigo que no sea 200" como el reto
+  // de bot de Cloudflare y seguia adelante con un ::warning::. Con el sitio
+  // devolviendo 429 durante dias, el deploy salia verde igualmente. Ahora solo
+  // 403 se tolera y cualquier otro codigo falla el job. Este test extrae el
+  // script tal y como se publica en el workflow y lo ejecuta con un curl falso.
+  const DEPLOY = '.github/workflows/deploy.yml';
+  const FAKE_SHA = '0123456789abcdef0123456789abcdef01234567';
+
+  function extractSmokeRun(): string {
+    const lines = read(DEPLOY).split('\n');
+    const start = lines.findIndex((line) => line.trim() === '- name: Post-deploy smoke test');
+    expect(start).toBeGreaterThan(-1);
+    const runAt = lines.findIndex((line, i) => i > start && line.trim() === 'run: |');
+    expect(runAt).toBeGreaterThan(start);
+    const indent = lines[runAt].length - lines[runAt].trimStart().length + 2;
+    const body: string[] = [];
+    for (let i = runAt + 1; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (line.trim() === '') {
+        body.push('');
+        continue;
+      }
+      if (line.length - line.trimStart().length < indent) break;
+      body.push(line.slice(indent));
+    }
+    expect(body.join('\n')).toContain('HTML_CODE');
+    return body.join('\n');
+  }
+
+  // curl falso: la peticion del HTML cache-busted devuelve el codigo que pide
+  // el caso de prueba, y todo asset estatico devuelve 200.
+  const CURL_STUB = [
+    'curl() {',
+    '  local out="" url="" prev=""',
+    '  for a in "$@"; do',
+    '    if [ "$prev" = "-o" ]; then out="$a"; fi',
+    '    prev="$a"',
+    '    url="$a"',
+    '  done',
+    '  if [[ "$url" == *"/?v="* ]]; then',
+    '    if [ -n "$out" ]; then',
+    '      {',
+    '        printf "%s\\n" "<link href=\\"assets/styles.css?v=${SHA:0:7}\\">"',
+    '        printf "%s\\n" "<img src=\\"assets/images/foto_perfil.png\\">"',
+    '      } > "$out"',
+    '    fi',
+    '    printf "%s" "$FAKE_HTML_CODE"',
+    '    if [ "$FAKE_HTML_CODE" = "200" ]; then return 0; fi',
+    '    return 22',
+    '  fi',
+    '  if [ -n "$out" ]; then : > "$out"; fi',
+    '  printf "200"',
+    '}',
+    'sleep() { :; }',
+  ].join('\n');
+
+  function runSmoke(htmlCode: string): { code: number; out: string } {
+    const harness = join(tmpdir(), `jsm-smoke-${Date.now()}-${Math.random()}.sh`);
+    writeFileSync(harness, `${CURL_STUB}\n${extractSmokeRun()}\n`, 'utf8');
+    try {
+      const proc = Bun.spawnSync(['bash', harness], {
+        env: { ...process.env, SHA: FAKE_SHA, FAKE_HTML_CODE: htmlCode },
+      });
+      return {
+        code: proc.exitCode ?? 1,
+        out: proc.stdout.toString() + proc.stderr.toString(),
+      };
+    } finally {
+      rmSync(harness, { force: true });
+    }
+  }
+
+  test('403 is tolerated because Cloudflare challenges the runner TLS fingerprint', () => {
+    const result = runSmoke('403');
+    expect(result.code).toBe(0);
+    expect(result.out).toContain('::warning::');
+    expect(result.out).toContain('403');
+    expect(result.out).toContain('Smoke test: all');
+  });
+
+  test('429 fails the deploy instead of passing it as a bot challenge', () => {
+    const result = runSmoke('429');
+    expect(result.code).toBe(1);
+    expect(result.out).toContain('::error::');
+    expect(result.out).toContain('429');
+  });
+
+  for (const code of ['500', '502', '503', '000']) {
+    test(`${code} fails the deploy`, () => {
+      const result = runSmoke(code);
+      expect(result.code).toBe(1);
+      expect(result.out).toContain('::error::');
+      expect(result.out).toContain(code);
+    });
+  }
+
+  test('200 still runs the release content checks and passes', () => {
+    const result = runSmoke('200');
+    expect(result.code).toBe(0);
+    expect(result.out).toContain('HTML content matches release');
+    expect(result.out).toContain('Smoke test: all');
+    expect(result.out).not.toContain('::error::');
+    // Con HTML 200 la nota de "HTML omitido" seria mentira, no debe salir.
+    expect(result.out).not.toContain('HTML content checks were skipped');
+  });
+})
+
+describe('CSP does not allowlist a host that does not resolve', () => {
+  // cdn.capdesis.com devuelve NXDOMAIN y ningun recurso del sitio lo usa.
+  // Un allowlist con hosts muertos invita a que alguien registre el nombre
+  // mas adelante y quede autorizado por una politica que nadie reviso.
+  test('img-src does not name cdn.capdesis.com', () => {
+    expect(read('.htaccess')).not.toContain('cdn.capdesis.com');
+  });
+
+  test('the capdesis images the page really hotlinks stay allowed', () => {
+    const htaccess = read('.htaccess');
+    expect(htaccess).toContain('img-src');
+    expect(htaccess).toContain('https://capdesis.com');
+    expect(read('index.html')).toContain('https://capdesis.com/images/');
+  });
+})

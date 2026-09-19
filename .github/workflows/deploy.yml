@@ -336,11 +336,6 @@ jobs:
               echo "::error::Cache-busted HTML still contains retired capmenu.app."
               exit 1
             fi
-            echo "OK   /?v=${V} -> 200 and HTML content matches release ${V}"
-          else
-            echo "::warning::Cache-busted HTML returned $HTML_CODE from CI; continuing with asset smoke because Cloudflare may challenge runner HTML requests."
-          fi
-          if [ "$HTML_CODE" = "200" ]; then
             if grep -q 'assets\.zyrosite\.com' /tmp/jsm-index.html; then
               echo "::error::Live HTML still hotlinks assets.zyrosite.com."
               exit 1
@@ -349,6 +344,20 @@ jobs:
               echo "::error::Live HTML missing self-hosted portrait path."
               exit 1
             }
+            echo "OK   /?v=${V} -> 200 and HTML content matches release ${V}"
+          elif [ "$HTML_CODE" = "403" ]; then
+            # 403 es la UNICA excepcion tolerada. Cloudflare Bot Fight Mode reta
+            # por huella TLS (JA3/JA4) a las IP de los runners, asi que curl
+            # recibe 403 aunque el sitio este sano para un navegador real. Ese
+            # caso continua con el smoke de assets estaticos, que no van retados.
+            echo "::warning::Cache-busted HTML returned 403 from CI (Cloudflare bot challenge against the runner IP); continuing with the static asset smoke."
+          else
+            # Cualquier otro codigo significa que el sitio no esta sirviendo:
+            # 429 del rate limit del edge, 5xx del origen Hostinger, 000 si ni
+            # siquiera conecta. Un deploy no puede salir verde con el sitio
+            # caido, asi que aqui se falla el job diciendo el codigo exacto.
+            echo "::error::Cache-busted HTML returned $HTML_CODE from CI. Only 403 (Cloudflare bot challenge) is tolerated; $HTML_CODE means the site is not serving."
+            exit 1
           fi
           URLS=(
             "/robots.txt"
@@ -396,4 +405,8 @@ jobs:
             exit 1
           fi
           echo "Smoke test: all ${#URLS[@]} URLs returned 200."
-          echo "Note: HTML endpoints skipped because CF Bot Fight Mode returns 403 to runner IPs regardless of User-Agent."
+          # La nota solo es cierta cuando de verdad hubo reto: con HTML 200 los
+          # contenidos si se comprobaron y afirmar lo contrario enganaria al log.
+          if [ "$HTML_CODE" = "403" ]; then
+            echo "Note: HTML content checks were skipped because CF Bot Fight Mode returned 403 to this runner IP regardless of User-Agent."
+          fi
