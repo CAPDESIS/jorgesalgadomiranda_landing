@@ -2109,7 +2109,10 @@
   const blob = document.getElementById('cursor-blob');
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
-  if (!reduceMotion && !coarsePointer) {
+  if (!reduceMotion && !coarsePointer && dot && blob) {
+    // Solo a partir de aqui se oculta el cursor del sistema: si algo fallara
+    // antes, la pagina se queda con su cursor normal.
+    document.body.classList.add('custom-cursor-ready');
     let mx = window.innerWidth / 2, my = window.innerHeight / 2;
     let bx = mx, by = my;
     window.addEventListener('mousemove', e => {

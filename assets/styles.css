@@ -106,9 +106,17 @@ body {
   text-rendering: optimizeLegibility;
   overflow-x: clip;
   transition: background 0.4s ease, color 0.4s ease;
-  cursor: none;
 }
-a, button, [data-magnetic], .toggle, .nav-links a, .nav-brand { cursor: none; }
+/* El cursor del sistema solo se oculta cuando el cursor propio esta vivo. Si
+   el script no llega a arrancar, la pagina conserva su cursor normal en vez
+   de quedarse sin ninguno. */
+body.custom-cursor-ready { cursor: none; }
+body.custom-cursor-ready a,
+body.custom-cursor-ready button,
+body.custom-cursor-ready [data-magnetic],
+body.custom-cursor-ready .toggle,
+body.custom-cursor-ready .nav-links a,
+body.custom-cursor-ready .nav-brand { cursor: none; }
 @media (max-width: 900px) {
   body, a, button, [data-magnetic], .toggle, .nav-links a, .nav-brand { cursor: auto; }
 }
