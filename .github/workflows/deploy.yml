@@ -41,6 +41,11 @@ jobs:
     # ci-runner-node-public-deploy-1 in group 6 "public-builds"; the
     # public-only label pins the job to it instead of queueing forever.
     runs-on: [self-hosted, ci-runner-node, deploy-only, public-only]
+    # Un solo runner puede atenderlo (ci-runner-node-public-deploy-1). Sin limite,
+    # un deploy colgado lo retiene las 6 horas por defecto de GitHub y ningun otro
+    # despliegue publico entra. Sin historico de ejecuciones con exito recientes,
+    # asi que el margen es amplio a proposito.
+    timeout-minutes: 30
     environment: production
     steps:
       - name: Resolve release context
