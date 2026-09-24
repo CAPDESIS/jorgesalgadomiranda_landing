@@ -6,6 +6,10 @@ env:
 on:
   workflow_dispatch:
 
+  # Run on PRs so the fail-closed concurrency guards actually gate merges.
+  pull_request:
+    branches: [main]
+
   schedule:
     # Local-first policy: PR/push validation runs on the developer machine.
     # Remote CI is manual or staggered daily to avoid runner bottlenecks.
@@ -168,6 +172,20 @@ jobs:
               if workflow_has "$file" "branches:[[:space:]]*\\[[^]]*main|branches:[[:space:]]*\\[[^]]*master|branches:" && workflow_has "$file" "push:"; then
                 warn "\`${base}\` appears to deploy from push. Production should use an exact main SHA through manual approval."
               fi
+            fi
+
+            # Fleet concurrency guards, mirrored from the shared
+            # release-policy-check.yml v1.0.0 (this repo keeps its local
+            # ubuntu-based audit because it is public). G1: deploy workflows
+            # queue instead of cancelling. G2: push-to-main workflows never
+            # cancel in flight, so main verdicts always conclude.
+            if [[ "$base" =~ [Dd]eploy ]] && workflow_has "$file" "cancel-in-progress:[[:space:]]*true"; then
+              fail "\`${base}\` is a deploy workflow but sets \`cancel-in-progress: true\`. Deploys must queue (\`cancel-in-progress: false\`) so every promotion concludes."
+            fi
+            if workflow_has "$file" "cancel-in-progress:[[:space:]]*true" \
+              && workflow_has "$file" "(^|[[:space:]])push:" \
+              && { workflow_has "$file" "branches:[[:space:]]*\\[[^]]*main" || workflow_has "$file" "^[[:space:]]*-[[:space:]]*['\"]?main['\"]?[[:space:]]*$"; }; then
+              fail "\`${base}\` runs on push to \`main\` but sets \`cancel-in-progress: true\`. Main verdicts must never be cancelled; use \`cancel-in-progress: \${{ github.ref != 'refs/heads/main' }}\`."
             fi
 
             # Fleet runner policy: private repositories are pinned 100%
