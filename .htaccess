@@ -96,6 +96,11 @@
   <FilesMatch "\.(html|htm|xml)$">
     Header set Cache-Control "public, max-age=300, s-maxage=300, must-revalidate"
   </FilesMatch>
+  # Parity marker: a cached version.json would report the previous deploy
+  # as current, so it is never stored by browsers or edges.
+  <FilesMatch "^version\.json$">
+    Header set Cache-Control "no-store, no-cache, must-revalidate"
+  </FilesMatch>
 </IfModule>
 
 # -------- Nice URL handling --------

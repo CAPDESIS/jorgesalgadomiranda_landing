@@ -259,7 +259,8 @@ describe('post-deploy smoke test only tolerates the documented Cloudflare 403', 
   }
 
   // curl falso: la peticion del HTML cache-busted devuelve el codigo que pide
-  // el caso de prueba, y todo asset estatico devuelve 200.
+  // el caso de prueba, version.json devuelve el sha que pide el caso, y todo
+  // asset estatico devuelve 200.
   const CURL_STUB = [
     'curl() {',
     '  local out="" url="" prev=""',
@@ -268,6 +269,10 @@ describe('post-deploy smoke test only tolerates the documented Cloudflare 403', 
     '    prev="$a"',
     '    url="$a"',
     '  done',
+    '  if [[ "$url" == *"/version.json"* ]]; then',
+    '    printf "%s" "{\\"sha\\":\\"$FAKE_SERVED_SHA\\",\\"built_at\\":\\"2026-09-24T00:00:00Z\\"}"',
+    '    return 0',
+    '  fi',
     '  if [[ "$url" == *"/?v="* ]]; then',
     '    if [ -n "$out" ]; then',
     '      {',
@@ -285,12 +290,12 @@ describe('post-deploy smoke test only tolerates the documented Cloudflare 403', 
     'sleep() { :; }',
   ].join('\n');
 
-  function runSmoke(htmlCode: string): { code: number; out: string } {
+  function runSmoke(htmlCode: string, servedSha: string = FAKE_SHA): { code: number; out: string } {
     const harness = join(tmpdir(), `jsm-smoke-${Date.now()}-${Math.random()}.sh`);
     writeFileSync(harness, `${CURL_STUB}\n${extractSmokeRun()}\n`, 'utf8');
     try {
       const proc = Bun.spawnSync(['bash', harness], {
-        env: { ...process.env, SHA: FAKE_SHA, FAKE_HTML_CODE: htmlCode },
+        env: { ...process.env, SHA: FAKE_SHA, FAKE_HTML_CODE: htmlCode, FAKE_SERVED_SHA: servedSha },
       });
       return {
         code: proc.exitCode ?? 1,
@@ -330,9 +335,17 @@ describe('post-deploy smoke test only tolerates the documented Cloudflare 403', 
     expect(result.code).toBe(0);
     expect(result.out).toContain('HTML content matches release');
     expect(result.out).toContain('Smoke test: all');
+    expect(result.out).toContain('/version.json -> sha');
     expect(result.out).not.toContain('::error::');
     // Con HTML 200 la nota de "HTML omitido" seria mentira, no debe salir.
     expect(result.out).not.toContain('HTML content checks were skipped');
+  });
+
+  test('a stale version.json sha fails the deploy', () => {
+    const result = runSmoke('200', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(result.code).toBe(1);
+    expect(result.out).toContain('::error::');
+    expect(result.out).toContain('/version.json');
   });
 })
 

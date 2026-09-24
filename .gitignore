@@ -7,6 +7,8 @@ coverage/
 .env.local
 api/secrets.php
 *.log
+# Deploy parity marker: generated at deploy time from the release SHA, never by hand.
+/version.json
 .idea/
 .vscode/
 
