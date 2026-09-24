@@ -187,6 +187,15 @@ jobs:
           grep -E "assets/(styles\.css|i18n\.js)" index.html || (echo "::error::cache-bust rewrite missed expected references" && exit 1)
           grep -cE "assets/js/[a-z0-9-]+\.js\?v=${V}" index.html | grep -q '^5$' || (echo "::error::cache-bust rewrite missed one of the assets/js/*.js references" && exit 1)
 
+      - name: Write version.json parity marker
+        env:
+          SHA: ${{ steps.release.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/write-version-json.py --sha "$SHA" --out version.json
+          test -s version.json
+          SHA="$SHA" python3 -c "import json,os; d=json.load(open('version.json')); assert d['sha']==os.environ['SHA'], d; print('version.json sha ok:', d['sha'])"
+
       - name: Inject production tokens (optional, skip silently if secret missing)
         env:
           UMAMI_ID: ${{ secrets.UMAMI_WEBSITE_ID }}
@@ -410,6 +419,29 @@ jobs:
             exit 1
           fi
           echo "Smoke test: all ${#URLS[@]} URLs returned 200."
+          # Parity gate: the origin must serve THIS release SHA from
+          # /version.json. Static files are not bot-challenged, so unlike the
+          # HTML probe above this one always asserts content, with a bounded
+          # retry for CDN or origin propagation.
+          SERVED_SHA=""
+          for attempt in 1 2 3; do
+            VERSION_SERVED="$(curl -sL --max-time 25 \
+              -A "Mozilla/5.0 (compatible; JSMSmokeTest/1.0; +https://jorgesalgadomiranda.com)" \
+              -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
+              "https://jorgesalgadomiranda.com/version.json?v=${V}" || true)"
+            SERVED_SHA="$(SHA_JSON="$VERSION_SERVED" python3 -c "import json,os; print(json.loads(os.environ['SHA_JSON']).get('sha',''))" 2>/dev/null || true)"
+            if [ "$SERVED_SHA" = "$SHA" ]; then
+              echo "OK   /version.json -> sha $SERVED_SHA"
+              break
+            fi
+            echo "WARN /version.json sha=${SERVED_SHA:-unreadable} on attempt $attempt, retrying in 10s"
+            SERVED_SHA=""
+            [ "$attempt" -lt 3 ] && sleep 10
+          done
+          if [ "$SERVED_SHA" != "$SHA" ]; then
+            echo "::error::/version.json does not serve release $SHA after 3 attempts (last: ${SERVED_SHA:-unreadable})."
+            exit 1
+          fi
           # La nota solo es cierta cuando de verdad hubo reto: con HTML 200 los
           # contenidos si se comprobaron y afirmar lo contrario enganaria al log.
           if [ "$HTML_CODE" = "403" ]; then

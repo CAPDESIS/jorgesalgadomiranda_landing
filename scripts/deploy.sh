@@ -103,6 +103,9 @@ if 'assets/styles.css?v=' not in html or 'assets/i18n.js?v=' not in html:
 path.write_text(html, encoding="utf-8")
 PY
 
+python3 "$DEPLOY_SOURCE_DIR/scripts/write-version-json.py" --sha "$RELEASE_SHA" --out "$DEPLOY_SOURCE_DIR/version.json"
+test -s "$DEPLOY_SOURCE_DIR/version.json"
+
 echo "Uploading $RELEASE_SHA to $FTP_HOST:$FTP_REMOTE_DIR"
 
 LFTP_PASSWORD="$FTP_PASS" lftp --env-password -u "$FTP_USER" "$FTP_HOST" <<EOF
