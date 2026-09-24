@@ -170,6 +170,20 @@ jobs:
               fi
             fi
 
+            # Fleet concurrency guards, mirrored from the shared
+            # release-policy-check.yml v1.0.0 (this repo keeps its local
+            # ubuntu-based audit because it is public). G1: deploy workflows
+            # queue instead of cancelling. G2: push-to-main workflows never
+            # cancel in flight, so main verdicts always conclude.
+            if [[ "$base" =~ [Dd]eploy ]] && workflow_has "$file" "cancel-in-progress:[[:space:]]*true"; then
+              fail "\`${base}\` is a deploy workflow but sets \`cancel-in-progress: true\`. Deploys must queue (\`cancel-in-progress: false\`) so every promotion concludes."
+            fi
+            if workflow_has "$file" "cancel-in-progress:[[:space:]]*true" \
+              && workflow_has "$file" "(^|[[:space:]])push:" \
+              && { workflow_has "$file" "branches:[[:space:]]*\\[[^]]*main" || workflow_has "$file" "^[[:space:]]*-[[:space:]]*['\"]?main['\"]?[[:space:]]*$"; }; then
+              fail "\`${base}\` runs on push to \`main\` but sets \`cancel-in-progress: true\`. Main verdicts must never be cancelled; use \`cancel-in-progress: \${{ github.ref != 'refs/heads/main' }}\`."
+            fi
+
             # Fleet runner policy: private repositories are pinned 100%
             # self-hosted; public repositories run CI on GitHub hosted runners
             # and keep deploys on the self-hosted deploy lane. A blanket
