@@ -56,6 +56,23 @@ describe('contact proxy and analytics contract', () => {
     expect(index.includes('name="access_key"')).toBe(false);
   });
 
+  test('contact proxy verifies Turnstile once the secret is provisioned', () => {
+    const proxy = read('api/contact.php');
+    expect(proxy).toContain("require __DIR__ . '/lib/turnstile.php'");
+    expect(proxy).toContain('jsm_turnstile_should_enforce()');
+    expect(proxy).toContain('jsm_turnstile_verify(');
+    expect(read('api/secrets.example.php')).toContain('TURNSTILE_SECRET_KEY');
+  });
+
+  test('contact form attaches the widget token and CSP allows challenges', () => {
+    const index = read('index.html');
+    expect(index).toContain('jsm-turnstile-site-key');
+    expect(index).toContain('cf-turnstile-response');
+    expect(index).toContain('challenges.cloudflare.com/turnstile');
+    const htaccess = read('.htaccess');
+    expect(htaccess).toContain('https://challenges.cloudflare.com');
+  });
+
   test('static validator matches the Resend proxy, not Web3Forms', () => {
     const src = read('scripts/validate-static-site.py');
     expect(src).toContain('must not reference Web3Forms');

@@ -13,6 +13,9 @@ return [
     // 'RESEND_REPLY_TO' => 'jorgesalgadomiranda@protonmail.com',
     // 'RESEND_API_BASE' => 'https://api.resend.com',
 
+    // Cloudflare Turnstile (activates verification on the contact form):
+    // 'TURNSTILE_SECRET_KEY' => '0x4AAAAA...',
+
     // Optional SMTP fallback (Hostinger or other):
     // 'SMTP_HOST' => 'smtp.hostinger.com',
     // 'SMTP_PORT' => '465',

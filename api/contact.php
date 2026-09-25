@@ -11,6 +11,7 @@ define('JSM_CONTACT_PROXY', true);
 require __DIR__ . '/lib/bootstrap-env.php';
 require __DIR__ . '/lib/contact-validator.php';
 require __DIR__ . '/lib/rate-limit.php';
+require __DIR__ . '/lib/turnstile.php';
 require __DIR__ . '/lib/resend-mail.php';
 require __DIR__ . '/lib/smtp-mail.php';
 
@@ -72,6 +73,22 @@ if ($validation !== true) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => $validation]);
     exit;
+}
+
+// Turnstile — active only once TURNSTILE_SECRET_KEY is provisioned.
+if (jsm_turnstile_should_enforce()) {
+    $widgetToken = jsm_turnstile_extract_token($_POST, $_SERVER);
+    if ($widgetToken === '') {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Verification required']);
+        exit;
+    }
+    if (!jsm_turnstile_verify($widgetToken, $client_ip)) {
+        error_log('[jsm-contact] turnstile verification failed ip=' . $client_ip);
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Verification failed']);
+        exit;
+    }
 }
 
 $fields = [
