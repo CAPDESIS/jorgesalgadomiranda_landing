@@ -24,6 +24,8 @@
 <link rel="alternate" hreflang="en" href="https://jorgesalgadomiranda.com/?lang=en" />
 <link rel="alternate" hreflang="x-default" href="https://jorgesalgadomiranda.com/" />
 <meta name="template-origin" content="jsm-portfolio-v1" />
+<!-- Cloudflare Turnstile site key (public). Empty until the supervisor creates the widget; the contact form submits without a token while empty. -->
+<meta name="jsm-turnstile-site-key" content="" />
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
 
 <!-- Open Graph -->
@@ -1877,6 +1879,9 @@
         <input type="hidden" name="source_page" value="/" />
         <input type="hidden" name="locale" id="cf-locale" value="es" />
 
+        <!-- Turnstile widget slot. Rendered only when the site key meta above is set. -->
+        <div class="cf-turnstile-slot" id="cf-turnstile" aria-hidden="true"></div>
+
         <p class="form-privacy" data-i18n="form.privacy">By sending this message you agree to the processing of your data as described in the <a href="legal/privacy.html">privacy notice</a>. I only use it to reply to your inquiry.</p>
 
         <button type="submit" class="form-submit" id="cf-submit">
@@ -2553,6 +2558,41 @@
     const honeypot = form.querySelector('input[name="botcheck"]');
     const localeInput = form.querySelector('#cf-locale');
 
+    // Turnstile (managed invisible). The script loads only when the site key
+    // meta is set; until then the form submits without a token and the PHP
+    // proxy stays open. A failed widget load also submits without a token
+    // (the proxy answers 400 once enforced, surfaced as form.err.submit).
+    const turnstileSiteKey = (document.querySelector('meta[name="jsm-turnstile-site-key"]')?.content || '').trim();
+    let turnstileWidgetId = null;
+    const loadTurnstile = () => new Promise((resolve) => {
+      if (!turnstileSiteKey) { resolve(false); return; }
+      if (window.turnstile) { resolve(true); return; }
+      const s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      s.async = true;
+      s.defer = true;
+      s.onload = () => resolve(true);
+      s.onerror = () => resolve(false);
+      document.head.appendChild(s);
+    });
+    const turnstileToken = () => new Promise((resolve) => {
+      loadTurnstile().then((ok) => {
+        if (!ok || !window.turnstile) { resolve(''); return; }
+        try {
+          if (turnstileWidgetId === null || turnstileWidgetId === undefined) {
+            turnstileWidgetId = window.turnstile.render('#cf-turnstile', {
+              sitekey: turnstileSiteKey,
+              size: 'invisible',
+              callback: (token) => resolve(token || ''),
+              'expired-callback': () => { turnstileWidgetId = null; resolve(''); },
+              'error-callback': () => { turnstileWidgetId = null; resolve(''); },
+            });
+          }
+          window.turnstile.execute(turnstileWidgetId);
+        } catch (_) { resolve(''); }
+      });
+    });
+
     const t = (key, fallback) => {
       try { return (window.__I18N__ && window.__I18N__[document.documentElement.dataset.lang || 'es']?.[key]) || fallback; }
       catch (_) { return fallback; }
@@ -2618,7 +2658,9 @@
       if (submitLabel) submitLabel.textContent = t('form.sending', 'Sending…');
 
       try {
+        const widgetToken = await turnstileToken();
         const fd = new FormData(form);
+        if (widgetToken) fd.set('cf-turnstile-response', widgetToken);
         const res = await fetch(contactApiUrl, {
           method: 'POST',
           headers: { 'Accept': 'application/json' },
