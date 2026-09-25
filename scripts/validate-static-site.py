@@ -155,6 +155,7 @@ for page in [
     "404.html",
     "legal/privacy.html",
     "legal/terms.html",
+    "legal/cookies.html",
     "cv/Jorge_Salgado_Miranda_CV_EN.html",
     "cv/Jorge_Salgado_Miranda_CV_ES.html",
 ]:
@@ -165,7 +166,7 @@ for page in [
         fail(f"{page} must contain a title.")
 
 hex_token = re.compile(r"--[a-z0-9-]+:\s*#[0-9a-fA-F]{3,8}\b")
-for aux_page in ["404.html", "legal/privacy.html", "legal/terms.html"]:
+for aux_page in ["404.html", "legal/privacy.html", "legal/terms.html", "legal/cookies.html"]:
     aux_source = (ROOT / aux_page).read_text(encoding="utf-8")
     if not re.search(r'href="/assets/styles\.css(?:\?[^"]*)?"', aux_source):
         fail(f"{aux_page} must link the site stylesheet at /assets/styles.css.")

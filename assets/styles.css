@@ -2615,6 +2615,17 @@ body.drawer-open { overflow: hidden; }
 }
 .form-submit:hover { background: var(--accent-hi); transform: translateY(-2px); }
 .form-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.form-privacy {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+  margin: 4px 0 2px;
+}
+.form-privacy a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .form-status {
   font-family: var(--font-mono); font-size: 12px;
   padding: 10px 14px;

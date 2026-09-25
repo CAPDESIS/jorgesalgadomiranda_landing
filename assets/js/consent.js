@@ -6,6 +6,10 @@ const CONSENT_KEY = 'jsm-cookie-consent';
 const CONSENT_TTL_MS = 365 * 24 * 60 * 60 * 1000; // 365 days
 const CONSENT_VERSION = 1;
 
+// Analytics providers the preferences panel can toggle individually.
+// Keys match the token/injector names used by loadAnalytics below.
+const PROVIDERS = ['posthog', 'umami', 'cloudflare'];
+
 // storage defaults to localStorage, now defaults to Date.now(); both are
 // injectable so tests never touch real browser storage or the clock.
 function readConsent(storage, now) {
@@ -31,6 +35,36 @@ function buildConsentRecord(accepted, now) {
   return { accepted: !!accepted, timestamp: nowMs, version: CONSENT_VERSION };
 }
 
+// Normalizes a per-provider preference map to strict booleans for every
+// known provider. Unknown keys are dropped; missing keys default to false
+// (opt-in: nothing runs unless the visitor enabled it).
+function normalizeProviders(input) {
+  const source = (input && typeof input === 'object') ? input : {};
+  const out = {};
+  for (var i = 0; i < PROVIDERS.length; i += 1) {
+    out[PROVIDERS[i]] = source[PROVIDERS[i]] === true;
+  }
+  return out;
+}
+
+function allProvidersEnabled() {
+  return { posthog: true, umami: true, cloudflare: true };
+}
+
+function noProvidersEnabled() {
+  return { posthog: false, umami: false, cloudflare: false };
+}
+
+// Providers allowed by a stored record or event detail. Legacy records
+// without a providers map fall back to accepted === true meaning all on.
+function providersFromConsent(consent) {
+  if (!consent || typeof consent !== 'object') return noProvidersEnabled();
+  if (consent.providers && typeof consent.providers === 'object') {
+    return normalizeProviders(consent.providers);
+  }
+  return consent.accepted === true ? allProvidersEnabled() : noProvidersEnabled();
+}
+
 function persistConsent(storage, accepted, now) {
   try {
     storage.setItem(CONSENT_KEY, JSON.stringify(buildConsentRecord(accepted, now)));
@@ -51,19 +85,24 @@ function isTokenConfigured(token) {
 // and calls the matching injector for each one. Returns the list of
 // providers that were actually loaded so callers/tests can assert on the
 // decision without needing a real DOM.
-function loadAnalytics(tokens, injectors) {
+//
+// The optional third argument carries the visitor's per-provider choice
+// (see normalizeProviders). When absent, every configured provider loads,
+// preserving the pre-preferences accept-all behavior.
+function loadAnalytics(tokens, injectors, providers) {
   tokens = tokens || {};
   injectors = injectors || {};
+  const allowed = providers ? normalizeProviders(providers) : null;
   const loadedProviders = [];
-  if (isTokenConfigured(tokens.umamiId) && typeof injectors.umami === 'function') {
+  if ((!allowed || allowed.umami) && isTokenConfigured(tokens.umamiId) && typeof injectors.umami === 'function') {
     injectors.umami(tokens.umamiId);
     loadedProviders.push('umami');
   }
-  if (isTokenConfigured(tokens.cfToken) && typeof injectors.cloudflare === 'function') {
+  if ((!allowed || allowed.cloudflare) && isTokenConfigured(tokens.cfToken) && typeof injectors.cloudflare === 'function') {
     injectors.cloudflare(tokens.cfToken);
     loadedProviders.push('cloudflare');
   }
-  if (isTokenConfigured(tokens.posthogKey) && typeof injectors.posthog === 'function') {
+  if ((!allowed || allowed.posthog) && isTokenConfigured(tokens.posthogKey) && typeof injectors.posthog === 'function') {
     injectors.posthog(tokens.posthogKey, tokens.posthogHost);
     loadedProviders.push('posthog');
   }
@@ -88,12 +127,14 @@ function createConsentGate(options) {
       return readConsent(storage, now());
     },
     // Call once at startup. Returns true if a prior acceptance fired onAccept.
+    // onAccept receives the per-provider map so the loader only injects
+    // what the visitor enabled (legacy all-or-nothing records map to all).
     triggerIfAccepted() {
       if (firedOnce) return false;
       const prior = gate.read();
       if (prior && prior.accepted === true) {
         firedOnce = true;
-        onAccept();
+        onAccept(providersFromConsent(prior));
         return true;
       }
       return false;
@@ -103,7 +144,7 @@ function createConsentGate(options) {
       if (firedOnce) return false;
       if (detail && detail.accepted === true) {
         firedOnce = true;
-        onAccept();
+        onAccept(providersFromConsent(detail));
         return true;
       }
       return false;
@@ -116,11 +157,14 @@ const JSMConsent = {
   CONSENT_KEY,
   CONSENT_TTL_MS,
   CONSENT_VERSION,
+  PROVIDERS,
   readConsent,
   buildConsentRecord,
   persistConsent,
   isTokenConfigured,
   loadAnalytics,
+  normalizeProviders,
+  providersFromConsent,
   createConsentGate
 };
 

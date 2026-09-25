@@ -24,13 +24,19 @@
   </url>
   <url>
     <loc>https://jorgesalgadomiranda.com/legal/privacy.html</loc>
-    <lastmod>2026-06-10</lastmod>
+    <lastmod>2026-09-25</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.4</priority>
   </url>
   <url>
     <loc>https://jorgesalgadomiranda.com/legal/terms.html</loc>
-    <lastmod>2026-06-29</lastmod>
+    <lastmod>2026-09-25</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://jorgesalgadomiranda.com/legal/cookies.html</loc>
+    <lastmod>2026-09-25</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.4</priority>
   </url>

@@ -36,7 +36,13 @@ const COPY = {
     link: 'Aviso de privacidad',
     accept: 'Aceptar todas',
     reject: 'Solo esenciales',
-    close: 'Cerrar'
+    configure: 'Configurar',
+    prefsTitle: 'Elige qué analítica puede ejecutarse',
+    prefsNecessary: 'Esenciales: siempre activas (recuerdan tu elección y el idioma).',
+    prefsPosthog: 'PostHog: mide visitas e interacciones (EE. UU., usa cookies).',
+    prefsUmami: 'Umami: mide visitas agregadas (auto-hospedado, sin cookies).',
+    prefsCloudflare: 'Cloudflare: mide tráfico agregado (sin cookies).',
+    save: 'Guardar elección'
   },
   en: {
     title: 'Privacy',
@@ -44,7 +50,13 @@ const COPY = {
     link: 'Privacy notice',
     accept: 'Accept all',
     reject: 'Essentials only',
-    close: 'Close'
+    configure: 'Configure',
+    prefsTitle: 'Choose which analytics may run',
+    prefsNecessary: 'Essentials: always on (they remember your choice and language).',
+    prefsPosthog: 'PostHog: measures visits and interactions (US, uses cookies).',
+    prefsUmami: 'Umami: measures aggregate visits (self-hosted, no cookies).',
+    prefsCloudflare: 'Cloudflare: measures aggregate traffic (no cookies).',
+    save: 'Save choice'
   }
 };
 
@@ -58,17 +70,56 @@ function pickCopy(langAttr) {
   return COPY[pickLang(langAttr)];
 }
 
-function persist(storage, contract, accepted, now) {
+function persist(storage, contract, accepted, now, providers) {
   const nowMs = typeof now === 'number' ? now : Date.now();
   try {
-    storage.setItem(contract.KEY, JSON.stringify({
+    const record = {
       accepted: !!accepted,
       timestamp: nowMs,
       version: contract.VERSION
-    }));
+    };
+    // Granular choice from the preferences panel. Omitted for the legacy
+    // accept-all / reject-all path so the stored shape stays unchanged.
+    if (providers && typeof providers === 'object') {
+      record.providers = {
+        posthog: providers.posthog === true,
+        umami: providers.umami === true,
+        cloudflare: providers.cloudflare === true
+      };
+    }
+    storage.setItem(contract.KEY, JSON.stringify(record));
     return true;
   } catch (_) {
     return false;
+  }
+}
+
+// Reads the preferences panel checkboxes into a provider map. Unchecked
+// or missing boxes read as false (opt-in).
+function collectProviders(banner) {
+  const out = { posthog: false, umami: false, cloudflare: false };
+  if (!banner || typeof banner.querySelector !== 'function') return out;
+  const names = ['posthog', 'umami', 'cloudflare'];
+  for (var i = 0; i < names.length; i += 1) {
+    const box = banner.querySelector('[data-cookie-provider="' + names[i] + '"]');
+    out[names[i]] = !!(box && box.checked === true);
+  }
+  return out;
+}
+
+function applyPrefsCopy(banner, dict) {
+  if (!banner || !dict) return;
+  const pairs = [
+    ['prefsTitle', 'title'],
+    ['prefsNecessary', 'necessary'],
+    ['prefsPosthog', 'posthog'],
+    ['prefsUmami', 'umami'],
+    ['prefsCloudflare', 'cloudflare'],
+    ['save', 'save']
+  ];
+  for (var i = 0; i < pairs.length; i += 1) {
+    const el = banner.querySelector('[data-cookie-prefs="' + pairs[i][1] + '"]');
+    if (el) el.textContent = dict[pairs[i][0]];
   }
 }
 
@@ -83,13 +134,13 @@ function applyCopy(banner, dict, doc) {
   const bodyText = banner.querySelector('[data-cookie-i18n="body"]');
   const accept = banner.querySelector('[data-cookie-i18n="accept"]');
   const reject = banner.querySelector('[data-cookie-i18n="reject"]');
-  const close = banner.querySelector('[data-cookie-i18n="close"]');
+  const configure = banner.querySelector('[data-cookie-i18n="configure"]');
   if (title) title.textContent = dict.title;
   if (accept) accept.textContent = dict.accept;
   if (reject) reject.textContent = dict.reject;
-  if (close) {
-    close.setAttribute('aria-label', dict.close);
-    close.textContent = dict.close;
+  if (configure) {
+    configure.setAttribute('aria-label', dict.configure);
+    configure.textContent = dict.configure;
   }
   if (bodyText) {
     while (bodyText.firstChild) bodyText.removeChild(bodyText.firstChild);
@@ -109,6 +160,8 @@ const JSMCookieBanner = {
   pickCopy,
   createFallbackContract,
   persist,
+  collectProviders,
+  applyPrefsCopy,
   applyCopy
 };
 
