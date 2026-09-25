@@ -22,7 +22,7 @@ function styleBlocks(html: string): string {
 const HEX_TOKEN = /--[a-z0-9-]+:\s*#[0-9a-fA-F]{3,8}\b/;
 
 describe('legal pages consume the site stylesheet', () => {
-  const pages = ['legal/privacy.html', 'legal/terms.html'];
+  const pages = ['legal/privacy.html', 'legal/terms.html', 'legal/cookies.html'];
 
   for (const page of pages) {
     test(`${page} links /assets/styles.css`, () => {
@@ -57,6 +57,16 @@ describe('legal pages consume the site stylesheet', () => {
     expect(html).toContain('Terms of Use');
     expect(html).toContain('Términos de Uso');
     expect(html).toContain('lang="es"');
+  });
+
+  test('cookies stays bilingual EN + ES and names the consent storage key', () => {
+    const html = read('legal/cookies.html');
+    expect(html).toContain('Cookie Policy');
+    expect(html).toContain('Política de Cookies');
+    expect(html).toContain('lang="es"');
+    expect(html).toContain('jsm-cookie-consent');
+    expect(html).toContain('PostHog');
+    expect(html).toContain('Umami');
   });
 
   test('legal chrome in styles.css maps to site tokens, not hex ink', () => {
@@ -123,6 +133,8 @@ describe('i18n catalog still covers footer legal links', () => {
     expect(keys.length).toBeGreaterThan(20);
     expect(keys).toContain('footer.privacy');
     expect(keys).toContain('footer.terms');
+    expect(keys).toContain('footer.cookies');
+    expect(keys).toContain('form.privacy');
 
     const I18N = (globalThis as any).window.__I18N__;
     expect(I18N).toBeDefined();

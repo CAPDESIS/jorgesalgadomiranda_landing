@@ -176,10 +176,11 @@
   };
 
   var gate = window.JSMConsent.createConsentGate({
-    onAccept: function () {
+    onAccept: function (providers) {
       window.JSMConsent.loadAnalytics(
         { umamiId: UMAMI_ID, cfToken: CF_TOKEN, posthogKey: POSTHOG_KEY, posthogHost: POSTHOG_HOST },
-        injectors
+        injectors,
+        providers
       );
     }
   });
@@ -335,7 +336,7 @@
       </h1>
 
       <div class="hero-lede" data-reveal>
-        <p data-i18n="hero.lede">I'm <strong>Jorge</strong>. Senior Engineer at PayPal/Venmo, CEO of Capdesis, and instructor to 54,000+ developers on Udemy. I design full systems: native mobile in Kotlin and Swift, Flutter when speed wins, Go backends on AWS with Postgres, Redis and Tailscale, and the security layers that tie them together. I take tests seriously and use AI as a copilot, never a crutch.</p>
+        <p data-i18n="hero.lede">I'm <strong>Jorge</strong>. Senior Engineer at PayPal/Venmo, CEO of Capdesis, and instructor to 54,200+ developers on Udemy. I design full systems: native mobile in Kotlin and Swift, Flutter when speed wins, Go backends on AWS with Postgres, Redis and Tailscale, and the security layers that tie them together. I take tests seriously and use AI as a copilot, never a crutch.</p>
       </div>
 
       <div class="hero-cta" data-reveal>
@@ -522,7 +523,7 @@
             <span class="tl-loc" data-i18n="exp.j2.loc">Mexico City · Founder</span>
           </div>
           <h3 class="tl-role"><img class="tl-logo" width="24" height="24"src="assets/brands/capdesis.webp" alt="" loading="lazy" decoding="async"><span data-i18n="exp.j2.role">CEO &amp; Founder</span> · <span class="tl-company">Capdesis</span></h3>
-          <p class="tl-blurb" data-i18n="exp.j2.blurb">EdTech &amp; custom software consultancy. 51,000+ students, 34+ projects, 97% satisfaction.</p>
+          <p class="tl-blurb" data-i18n="exp.j2.blurb">EdTech &amp; custom software consultancy. 51,000+ students, 34+ projects.</p>
           <div class="tl-body"><div class="tl-body-inner">
             <ul class="tl-points">
             <li data-i18n="exp.j2.p1">Leading a team of 4 to 6 developers shipping Flutter, Go backends and web across iOS/Android/Web</li>
@@ -1876,6 +1877,8 @@
         <input type="hidden" name="source_page" value="/" />
         <input type="hidden" name="locale" id="cf-locale" value="es" />
 
+        <p class="form-privacy" data-i18n="form.privacy">By sending this message you agree to the processing of your data as described in the <a href="legal/privacy.html">privacy notice</a>. I only use it to reply to your inquiry.</p>
+
         <button type="submit" class="form-submit" id="cf-submit">
           <span data-i18n="form.submit">Send message</span>
           <svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
@@ -1993,6 +1996,8 @@
       <a href="legal/privacy.html" class="footer-link" data-i18n="footer.privacy">Privacy</a>
       <span class="footer-sep">·</span>
       <a href="legal/terms.html" class="footer-link" data-i18n="footer.terms">Terms</a>
+      <span class="footer-sep">·</span>
+      <a href="legal/cookies.html" class="footer-link" data-i18n="footer.cookies">Cookies</a>
     </div>
     <a href="#top" class="footer-top" data-magnetic>
       <span data-i18n="footer.top">Back to top</span>
@@ -2738,6 +2743,47 @@
     border-color: var(--accent-hi);
     color: var(--bg);
   }
+  .cookie-prefs {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .cookie-prefs[hidden] {
+    display: none;
+  }
+  .cookie-prefs-title {
+    margin: 0;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .cookie-prefs-necessary {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 12.5px;
+  }
+  .cookie-prefs-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+    color: var(--fg-muted);
+    font-size: 13px;
+  }
+  .cookie-prefs-row input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    flex-shrink: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .cookie-prefs .cookie-banner-btn {
+    align-self: flex-start;
+    margin-top: 6px;
+  }
   @media (max-width: 520px) {
     .cookie-banner {
       left: 10px;
@@ -2762,7 +2808,24 @@
   <div class="cookie-banner-actions">
     <button type="button" class="cookie-banner-btn cookie-banner-btn--primary" id="cookie-accept" data-cookie-i18n="accept">Aceptar todas</button>
     <button type="button" class="cookie-banner-btn" id="cookie-reject" data-cookie-i18n="reject">Solo esenciales</button>
-    <button type="button" class="cookie-banner-btn" id="cookie-close" data-cookie-i18n="close" aria-label="Cerrar">Cerrar</button>
+    <button type="button" class="cookie-banner-btn" id="cookie-configure" data-cookie-i18n="configure" aria-label="Configurar" aria-expanded="false" aria-controls="cookie-prefs">Configurar</button>
+  </div>
+  <div class="cookie-prefs" id="cookie-prefs" hidden>
+    <p class="cookie-prefs-title" data-cookie-prefs="title">Elige qué analítica puede ejecutarse</p>
+    <p class="cookie-prefs-necessary" data-cookie-prefs="necessary">Esenciales: siempre activas (recuerdan tu elección y el idioma).</p>
+    <label class="cookie-prefs-row">
+      <input type="checkbox" data-cookie-provider="posthog" />
+      <span data-cookie-prefs="posthog">PostHog: mide visitas e interacciones (EE. UU., usa cookies).</span>
+    </label>
+    <label class="cookie-prefs-row">
+      <input type="checkbox" data-cookie-provider="umami" />
+      <span data-cookie-prefs="umami">Umami: mide visitas agregadas (auto-hospedado, sin cookies).</span>
+    </label>
+    <label class="cookie-prefs-row">
+      <input type="checkbox" data-cookie-provider="cloudflare" />
+      <span data-cookie-prefs="cloudflare">Cloudflare: mide tráfico agregado (sin cookies).</span>
+    </label>
+    <button type="button" class="cookie-banner-btn cookie-banner-btn--primary" id="cookie-save" data-cookie-prefs="save">Guardar elección</button>
   </div>
 </div>
 
@@ -2781,13 +2844,26 @@
   // banner still works if the loader script never ran (defense in depth).
   var contract = window.__jsmConsent || CB.createFallbackContract();
 
+  var prefs = document.getElementById('cookie-prefs');
+  var configureBtn = document.getElementById('cookie-configure');
+
   var applyCopy = function () {
     var lang = document.documentElement.getAttribute('data-lang');
-    CB.applyCopy(banner, CB.pickCopy(lang), document);
+    var dict = CB.pickCopy(lang);
+    CB.applyCopy(banner, dict, document);
+    CB.applyPrefsCopy(banner, dict);
   };
 
-  var persist = function (accepted) {
-    CB.persist(localStorage, contract, accepted);
+  var persist = function (accepted, providers) {
+    CB.persist(localStorage, contract, accepted, undefined, providers);
+  };
+
+  var dispatchConsent = function (accepted, providers) {
+    try {
+      var detail = { accepted: !!accepted };
+      if (providers) detail.providers = providers;
+      window.dispatchEvent(new CustomEvent('jsm-cookie-consent', { detail: detail }));
+    } catch (_) { /* ignore */ }
   };
 
   var hide = function () {
@@ -2809,26 +2885,39 @@
   }
 
   document.getElementById('cookie-accept')?.addEventListener('click', function () {
-    persist(true);
+    var all = { posthog: true, umami: true, cloudflare: true };
+    persist(true, all);
     hide();
-    try {
-      window.dispatchEvent(new CustomEvent('jsm-cookie-consent', { detail: { accepted: true } }));
-    } catch (_) { /* ignore */ }
+    dispatchConsent(true, all);
   });
 
   document.getElementById('cookie-reject')?.addEventListener('click', function () {
-    persist(false);
+    var none = { posthog: false, umami: false, cloudflare: false };
+    persist(false, none);
     hide();
-    try {
-      window.dispatchEvent(new CustomEvent('jsm-cookie-consent', { detail: { accepted: false } }));
-    } catch (_) { /* ignore */ }
+    dispatchConsent(false, none);
   });
 
-  // "Close" without picking either option: hide for this pageview but do
-  // NOT persist, so the banner reappears next visit. This matches the
-  // "no implicit consent" requirement of LFPDPPP / GDPR.
-  document.getElementById('cookie-close')?.addEventListener('click', function () {
+  // "Configure" expands the per-provider preferences panel. Nothing is
+  // persisted until the visitor presses "Save choice".
+  configureBtn?.addEventListener('click', function () {
+    if (!prefs) return;
+    var open = prefs.hasAttribute('hidden');
+    if (open) {
+      prefs.removeAttribute('hidden');
+      configureBtn.setAttribute('aria-expanded', 'true');
+    } else {
+      prefs.setAttribute('hidden', '');
+      configureBtn.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  document.getElementById('cookie-save')?.addEventListener('click', function () {
+    var providers = CB.collectProviders(banner);
+    var anyOn = providers.posthog || providers.umami || providers.cloudflare;
+    persist(anyOn, providers);
     hide();
+    dispatchConsent(anyOn, providers);
   });
 
   // Re-render copy when the user switches site language while the banner

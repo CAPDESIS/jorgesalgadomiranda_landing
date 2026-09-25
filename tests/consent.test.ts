@@ -8,6 +8,8 @@ import {
   persistConsent,
   isTokenConfigured,
   loadAnalytics,
+  normalizeProviders,
+  providersFromConsent,
   createConsentGate
 } from '../assets/js/consent.js';
 
@@ -146,6 +148,50 @@ describe('loadAnalytics', () => {
     expect(loaded).toEqual(['cloudflare']);
     expect(injectors.cloudflare).toHaveBeenCalledWith('real-cf-token');
   });
+
+  test('loads only the providers enabled in the granular choice', () => {
+    const injectors = { umami: mock(), cloudflare: mock(), posthog: mock() };
+    const tokens = { umamiId: 'real-id', cfToken: 'real-cf', posthogKey: 'real-key', posthogHost: 'https://x' };
+    const loaded = loadAnalytics(tokens, injectors, { umami: true, cloudflare: false, posthog: false });
+    expect(loaded).toEqual(['umami']);
+    expect(injectors.umami).toHaveBeenCalledTimes(1);
+    expect(injectors.cloudflare).not.toHaveBeenCalled();
+    expect(injectors.posthog).not.toHaveBeenCalled();
+  });
+
+  test('loads nothing when the granular choice enables no provider', () => {
+    const injectors = { umami: mock(), cloudflare: mock(), posthog: mock() };
+    const tokens = { umamiId: 'real-id', cfToken: 'real-cf', posthogKey: 'real-key', posthogHost: 'https://x' };
+    expect(loadAnalytics(tokens, injectors, { umami: false, cloudflare: false, posthog: false })).toEqual([]);
+    expect(injectors.umami).not.toHaveBeenCalled();
+  });
+});
+
+describe('normalizeProviders / providersFromConsent', () => {
+  test('normalizeProviders coerces to strict booleans and drops unknown keys', () => {
+    expect(normalizeProviders({ posthog: true })).toEqual({ posthog: true, umami: false, cloudflare: false });
+    expect(normalizeProviders({ posthog: 1, gtag: true } as any)).toEqual({ posthog: false, umami: false, cloudflare: false });
+    expect(normalizeProviders(null as any)).toEqual({ posthog: false, umami: false, cloudflare: false });
+  });
+
+  test('providersFromConsent honors a stored granular map', () => {
+    const consent = { accepted: true, timestamp: 0, version: CONSENT_VERSION, providers: { umami: true } };
+    expect(providersFromConsent(consent)).toEqual({ posthog: false, umami: true, cloudflare: false });
+  });
+
+  test('providersFromConsent maps legacy records: accepted means all on', () => {
+    expect(providersFromConsent({ accepted: true, timestamp: 0, version: CONSENT_VERSION })).toEqual({
+      posthog: true,
+      umami: true,
+      cloudflare: true,
+    });
+    expect(providersFromConsent({ accepted: false, timestamp: 0, version: CONSENT_VERSION })).toEqual({
+      posthog: false,
+      umami: false,
+      cloudflare: false,
+    });
+    expect(providersFromConsent(null as any)).toEqual({ posthog: false, umami: false, cloudflare: false });
+  });
 });
 
 describe('createConsentGate', () => {
@@ -207,5 +253,27 @@ describe('createConsentGate', () => {
     const gate = createConsentGate();
     expect(gate.read()).toBeNull();
     expect(gate.triggerIfAccepted()).toBe(false);
+  });
+
+  test('triggerIfAccepted passes the stored granular map to onAccept', () => {
+    const record = {
+      accepted: true,
+      timestamp: 0,
+      version: CONSENT_VERSION,
+      providers: { posthog: false, umami: true, cloudflare: false },
+    };
+    const storage = fakeStorage({ [CONSENT_KEY]: JSON.stringify(record) });
+    const onAccept = mock();
+    const gate = createConsentGate({ storage, now: () => 0, onAccept });
+    expect(gate.triggerIfAccepted()).toBe(true);
+    expect(onAccept).toHaveBeenCalledWith({ posthog: false, umami: true, cloudflare: false });
+  });
+
+  test('handleConsentEvent passes the event granular map to onAccept', () => {
+    const onAccept = mock();
+    const gate = createConsentGate({ storage: fakeStorage(), now: () => 0, onAccept });
+    const detail = { accepted: true, providers: { posthog: true, umami: false, cloudflare: true } };
+    expect(gate.handleConsentEvent(detail)).toBe(true);
+    expect(onAccept).toHaveBeenCalledWith({ posthog: true, umami: false, cloudflare: true });
   });
 });

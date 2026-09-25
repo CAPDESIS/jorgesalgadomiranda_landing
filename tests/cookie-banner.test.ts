@@ -1,5 +1,7 @@
 import { describe, expect, test, beforeEach } from 'bun:test';
-import { COPY, pickLang, pickCopy, createFallbackContract, persist, applyCopy } from '../assets/js/cookie-banner.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { COPY, pickLang, pickCopy, createFallbackContract, persist, collectProviders, applyPrefsCopy, applyCopy } from '../assets/js/cookie-banner.js';
 
 describe('pickLang / pickCopy', () => {
   test('returns es for anything that is not exactly "en"', () => {
@@ -79,6 +81,85 @@ describe('persist', () => {
     const storage = { setItem: () => { throw new Error('nope'); } };
     expect(persist(storage as any, { KEY: 'k', VERSION: 1 }, true, 1)).toBe(false);
   });
+
+  test('stores the granular provider map when one is given', () => {
+    const data: Record<string, string> = {};
+    const storage = { setItem: (k: string, v: string) => { data[k] = v; } };
+    persist(storage as any, { KEY: 'k', VERSION: 1 }, true, 123, { posthog: false, umami: true, cloudflare: false });
+    expect(JSON.parse(data.k)).toEqual({
+      accepted: true,
+      timestamp: 123,
+      version: 1,
+      providers: { posthog: false, umami: true, cloudflare: false },
+    });
+  });
+
+  test('coerces provider flags to strict booleans and drops unknown keys', () => {
+    const data: Record<string, string> = {};
+    const storage = { setItem: (k: string, v: string) => { data[k] = v; } };
+    persist(storage as any, { KEY: 'k', VERSION: 1 }, true, 123, { posthog: 1, gtag: true } as any);
+    expect(JSON.parse(data.k).providers).toEqual({ posthog: false, umami: false, cloudflare: false });
+  });
+});
+
+describe('collectProviders', () => {
+  function buildPrefs() {
+    document.body.innerHTML = `
+      <div id="cookie-banner">
+        <input type="checkbox" data-cookie-provider="posthog" checked />
+        <input type="checkbox" data-cookie-provider="umami" />
+        <input type="checkbox" data-cookie-provider="cloudflare" checked />
+      </div>`;
+    return document.getElementById('cookie-banner')!;
+  }
+
+  test('reads each provider checkbox state', () => {
+    expect(collectProviders(buildPrefs())).toEqual({ posthog: true, umami: false, cloudflare: true });
+  });
+
+  test('missing checkboxes read as false (opt-in)', () => {
+    document.body.innerHTML = '<div id="cookie-banner"></div>';
+    expect(collectProviders(document.getElementById('cookie-banner')!)).toEqual({
+      posthog: false,
+      umami: false,
+      cloudflare: false,
+    });
+  });
+
+  test('returns all false without a banner element', () => {
+    expect(collectProviders(null as any)).toEqual({ posthog: false, umami: false, cloudflare: false });
+  });
+});
+
+describe('applyPrefsCopy', () => {
+  function buildPrefs() {
+    document.body.innerHTML = `
+      <div id="cookie-banner">
+        <p data-cookie-prefs="title"></p>
+        <p data-cookie-prefs="necessary"></p>
+        <span data-cookie-prefs="posthog"></span>
+        <span data-cookie-prefs="umami"></span>
+        <span data-cookie-prefs="cloudflare"></span>
+        <button data-cookie-prefs="save"></button>
+      </div>`;
+    return document.getElementById('cookie-banner')!;
+  }
+
+  test('fills every preferences label from the dictionary', () => {
+    const banner = buildPrefs();
+    applyPrefsCopy(banner, COPY.en);
+    expect(banner.querySelector('[data-cookie-prefs="title"]')!.textContent).toBe(COPY.en.prefsTitle);
+    expect(banner.querySelector('[data-cookie-prefs="necessary"]')!.textContent).toBe(COPY.en.prefsNecessary);
+    expect(banner.querySelector('[data-cookie-prefs="posthog"]')!.textContent).toBe(COPY.en.prefsPosthog);
+    expect(banner.querySelector('[data-cookie-prefs="umami"]')!.textContent).toBe(COPY.en.prefsUmami);
+    expect(banner.querySelector('[data-cookie-prefs="cloudflare"]')!.textContent).toBe(COPY.en.prefsCloudflare);
+    expect(banner.querySelector('[data-cookie-prefs="save"]')!.textContent).toBe(COPY.en.save);
+  });
+
+  test('is a no-op without banner or dictionary', () => {
+    expect(() => applyPrefsCopy(null as any, COPY.en)).not.toThrow();
+    expect(() => applyPrefsCopy(buildPrefs(), null as any)).not.toThrow();
+  });
 });
 
 describe('applyCopy', () => {
@@ -91,7 +172,7 @@ describe('applyCopy', () => {
         </p>
         <button id="cookie-accept" data-cookie-i18n="accept"></button>
         <button id="cookie-reject" data-cookie-i18n="reject"></button>
-        <button id="cookie-close" data-cookie-i18n="close"></button>
+        <button id="cookie-configure" data-cookie-i18n="configure"></button>
       </div>`;
     return document.getElementById('cookie-banner')!;
   }
@@ -102,9 +183,9 @@ describe('applyCopy', () => {
     expect(banner.querySelector('[data-cookie-i18n="title"]')!.textContent).toBe('Privacy');
     expect(banner.querySelector('#cookie-accept')!.textContent).toBe('Accept all');
     expect(banner.querySelector('#cookie-reject')!.textContent).toBe('Essentials only');
-    const close = banner.querySelector('#cookie-close')!;
-    expect(close.textContent).toBe('Close');
-    expect(close.getAttribute('aria-label')).toBe('Close');
+    const configure = banner.querySelector('#cookie-configure')!;
+    expect(configure.textContent).toBe('Configure');
+    expect(configure.getAttribute('aria-label')).toBe('Configure');
   });
 
   test('rebuilds the body paragraph with the link and trailing period', () => {
@@ -130,5 +211,29 @@ describe('applyCopy', () => {
     document.body.innerHTML = '<div id="cookie-banner"></div>';
     const banner = document.getElementById('cookie-banner')!;
     expect(() => applyCopy(banner, COPY.en, document)).not.toThrow();
+  });
+});
+
+describe('banner markup contract', () => {
+  const index = readFileSync(join(import.meta.dir, '..', 'index.html'), 'utf8');
+
+  test('offers accept, reject and configure as three equally visible buttons', () => {
+    expect(index).toContain('id="cookie-accept"');
+    expect(index).toContain('id="cookie-reject"');
+    expect(index).toContain('id="cookie-configure"');
+    expect(index.includes('id="cookie-close"')).toBe(false);
+  });
+
+  test('preferences panel carries one checkbox per provider plus save', () => {
+    expect(index).toContain('id="cookie-prefs"');
+    expect(index).toContain('data-cookie-provider="posthog"');
+    expect(index).toContain('data-cookie-provider="umami"');
+    expect(index).toContain('data-cookie-provider="cloudflare"');
+    expect(index).toContain('id="cookie-save"');
+  });
+
+  test('contact form links the privacy notice', () => {
+    expect(index).toContain('data-i18n="form.privacy"');
+    expect(index).toContain('href="legal/privacy.html"');
   });
 });
