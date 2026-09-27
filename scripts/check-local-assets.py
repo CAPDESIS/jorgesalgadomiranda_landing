@@ -7,6 +7,7 @@ agent Markdown may still mention assets.zyrosite.com historically and are ignore
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -65,17 +66,31 @@ LOCAL_REF_RE = re.compile(
 
 
 def iter_scan_files() -> list[Path]:
+    # Prune skipped directories during the walk instead of filtering after a
+    # full rglob: node_modules/.git/coverage hold thousands of entries that
+    # can never match, and stating every one of them 4 times (once per guard
+    # test) trips the 5 s test timeout on the loaded deploy runner. The
+    # visited set is identical to the old filter (a file is skipped iff any
+    # of its parent dirs under ROOT is skipped), so the scanned count is
+    # unchanged. Symlinked dirs are not descended, matching rglob defaults.
     files: list[Path] = []
-    for path in ROOT.rglob("*"):
-        if not path.is_file():
+    stack: list[Path] = [ROOT]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
             continue
-        rel_parts = path.relative_to(ROOT).parts
-        if any(part in SKIP_DIR_NAMES for part in rel_parts[:-1]):
-            continue
-        name = path.name
-        suffix = path.suffix.lower()
-        if name in SCAN_NAMES or suffix in SCAN_SUFFIXES:
-            files.append(path)
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False):
+                if entry.name in SKIP_DIR_NAMES:
+                    continue
+                stack.append(Path(entry.path))
+            elif entry.is_file():
+                name = entry.name
+                suffix = Path(name).suffix.lower()
+                if name in SCAN_NAMES or suffix in SCAN_SUFFIXES:
+                    files.append(Path(entry.path))
     return sorted(files)
 
 
