@@ -70,6 +70,34 @@ describe('check-local-assets guard', () => {
     expect(out).toContain('assets/this-file-does-not-exist.css');
   });
 
+  test('refs under skipped dirs are never scanned', () => {
+    // Locks the skip contract the pruned walk relies on: a probe carrying
+    // both a forbidden Zyro ref and a missing-asset ref inside node_modules
+    // must not fail the guard. Mutate by dropping node_modules from
+    // SKIP_DIR_NAMES in scripts/check-local-assets.py to see this go red.
+    const probeDir = join(ROOT, 'node_modules', '__asset_guard_probe__');
+    mkdirSync(probeDir, { recursive: true });
+    try {
+      writeFileSync(
+        join(probeDir, 'probe.html'),
+        [
+          '<!DOCTYPE html>',
+          '<html lang="en"><head>',
+          '<!-- assets.zyrosite.com must be ignored outside shippable sources -->',
+          '<link rel="stylesheet" href="/assets/probe-does-not-exist.css" />',
+          '</head><body></body></html>',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      const { code, out } = runGuard();
+      expect(out).toContain('Asset guard OK');
+      expect(code).toBe(0);
+    } finally {
+      rmSync(probeDir, { recursive: true, force: true });
+    }
+  });
+
   test('a relative ref to a file that does not exist still fails', () => {
     writeFixture(
       [
