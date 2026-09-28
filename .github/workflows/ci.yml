@@ -33,6 +33,27 @@ jobs:
         run: bun run lint
       - name: Build (static validator)
         run: bun run build
+      - name: Dependency advisories (bun audit, high plus)
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            set +e
+            audit_output="$(bun audit --audit-level=high 2>&1)"
+            audit_status=$?
+            set -e
+            printf '%s\n' "$audit_output"
+            if [ "$audit_status" -eq 0 ]; then
+              exit 0
+            fi
+            if ! printf '%s' "$audit_output" | grep -Eqi 'audit request failed.*status (429|5[0-9]{2})|ECONNRESET|ETIMEDOUT|fetch failed'; then
+              exit "$audit_status"
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo '::error::bun audit could not reach the advisory service after 3 attempts. No vulnerability result was produced.'
+              exit "$audit_status"
+            fi
+            sleep $((attempt * 5))
+          done
       - name: Validate Python syntax
         run: python3 -m py_compile scripts/validate-static-site.py
       - name: Validate local deploy script syntax
