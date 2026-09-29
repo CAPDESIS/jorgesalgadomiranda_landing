@@ -83,7 +83,7 @@ jobs:
           esac
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.release.outputs.release_sha }}
           fetch-depth: 0
@@ -273,7 +273,7 @@ jobs:
           fi
 
       - name: Deploy via FTPS
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        uses: SamKirkland/FTP-Deploy-Action@110f9186c050f71550953127052e77650219c287 # v4.4.0
         with:
           server: ${{ steps.host.outputs.host }}
           username: ${{ secrets.FTP_USER }}
