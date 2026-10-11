@@ -15,6 +15,13 @@
   # www → apex (Cloudflare also does this, but origin-side is a belt-and-suspenders)
   RewriteCond %{HTTP_HOST} ^www\.jorgesalgadomiranda\.com$ [NC]
   RewriteRule ^ https://jorgesalgadomiranda.com%{REQUEST_URI} [L,R=301]
+
+  # Canonical legal URLs (LEGALS 2026-10-11): typed aliases 301 to the page
+  # rendering each document.
+  RewriteRule ^privacidad/?$ /legal/privacy.html [R=301,L]
+  RewriteRule ^terminos/?$ /legal/terms.html [R=301,L]
+  RewriteRule ^privacy/?$ /legal/privacy.html [R=301,L]
+  RewriteRule ^terms/?$ /legal/terms.html [R=301,L]
 </IfModule>
 
 # -------- Security headers --------
