@@ -9,10 +9,15 @@ path:
 2. **Manual** from your laptop via `bun run deploy` only as an audited recovery
    fallback.
 
-## Current production pilot status
+## Production status
 
-As of 2026-07-22, `.github/workflows/deploy.yml` is the only
-production-deploy path:
+Measured 2026-10-13: the live apex serves cache-busted assets stamped
+`v=4e46863`, which equals `origin/main` HEAD (`4e46863`, PR #63), with
+`strict-transport-security: max-age=63072000; includeSubDomains;
+preload` at the edge. Latest `deploy.yml` run: success on 2026-09-28.
+
+Historical note (2026-07-22 pilot): `.github/workflows/deploy.yml` is
+the only production-deploy path:
 
 - Pushes to `main` and daily schedules do not deploy automatically. They run
   validation/audit workflows only.
@@ -69,11 +74,11 @@ Flow:
 2. The operator confirms release health, known P0/P1 status and backup state;
    production is gated to Monday-Thursday in `America/Mexico_City`, and there
    is currently no separate staging deploy workflow in this repo.
-3. `actions/checkout@v6` pulls the selected SHA.
+3. `actions/checkout` v7.0.1 (pinned SHA in `deploy.yml`) pulls the selected SHA.
 4. The workflow sanitizes and resolves `FTP_HOST`.
 5. It rewrites CSS/JS URLs with the short SHA for cache busting.
 6. Optional production tokens are injected from secrets when configured.
-7. `SamKirkland/FTP-Deploy-Action@v4.3.5` mirrors the working tree to the
+7. `SamKirkland/FTP-Deploy-Action` v4.4.0 (pinned SHA in `deploy.yml`) mirrors the working tree to the
    FTP server on port 21 using FTPS.
 8. The action uses the same exclude list as the local deploy script, so
    `.git*`, `.github/`, `docs/`, `scripts/`, `.env*`, `node_modules/`,
@@ -203,8 +208,13 @@ Click through:
 
 ## DNS
 
-`jorgesalgadomiranda.com` -> Hostinger nameservers. CNAME for `www` ->
-apex. HTTPS handled by Hostinger automatically.
+`jorgesalgadomiranda.com` uses **Cloudflare nameservers**
+(`alberto.ns.cloudflare.com`, `harlee.ns.cloudflare.com`; measured
+2026-10-13 via `dig NS`). Apex and `www` resolve to Cloudflare edge
+addresses (proxied; no `www` CNAME). HTTPS terminates at the Cloudflare
+edge in front of the Hostinger origin. (An older revision of this
+section claimed Hostinger nameservers; that has been false since DNS
+moved to Cloudflare — see `docs/MANUAL_SETUP.md` §2.)
 
 ## Third-party tokens to plug in
 

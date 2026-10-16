@@ -4,7 +4,7 @@ Living audit log for `jorgesalgadomiranda.com`. Captures everything
 that has shipped recently, what is in progress, and what is waiting on
 the user so nothing slips between sessions.
 
-Last refreshed: 2026-07-13.
+Last refreshed: 2026-10-14.
 
 ---
 
@@ -63,7 +63,7 @@ Verified live after Cloudflare purge:
 - Drawer renders correctly.
 - Stack logos visible in both the list and the tech-strip (27/27 loaded after scroll).
 - OG card fetched fresh on Twitter and LinkedIn scrapers.
-- CV PDFs are in sync with HTML content and carry embedded metadata.
+- CV PDFs are in sync with HTML content and carry embedded metadata. (2026-10-14: still content-current — the only later HTML change, `8325ac9`, was hreflang head links plus `toolbar no-print` markup, both excluded from print/PDF output.)
 - humans.txt responds 200.
 - JSON-LD blocks parse cleanly (Person, ProfessionalService, WebSite).
 
@@ -95,7 +95,7 @@ Verified live after Cloudflare purge:
 |---|---|---|
 | T-301 | Migrate to Astro | Current site is 37 KB total, FCP 640 ms, load 777 ms. Astro output for a single-page portfolio would be in the same ballpark. The cost is a Node build step, a rewrite of 2482 lines into components, and risk of breaking watermarks, animations, i18n timing, focus traps. Revisit only if we start publishing blog posts or multiple case studies. |
 | T-302 | Self-host the Instrument Serif and Geist fonts from Google Fonts | Already self-hosted. |
-| T-303 | Use a bundler | No runtime dependency, no bundler, no lockfile. Deploy is literally FTP upload of HTML + CSS + JS files. A bundler would add complexity without user-visible benefit. |
+| T-303 | Use a bundler | No runtime dependency, no bundler (`bun.lock` pins dev/test tooling only, not a build). Deploy is literally FTP upload of HTML + CSS + JS files. A bundler would add complexity without user-visible benefit. |
 
 ---
 
