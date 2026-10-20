@@ -2,7 +2,7 @@ name: test
 
 on:
   # Local-first policy: the full suite is dispatched/scheduled on trusted
-  # self-hosted capacity; production deploy remains a separate gated workflow.
+  # dedicated capacity; production deploy remains a separate gated workflow.
   workflow_dispatch:
 
   schedule:

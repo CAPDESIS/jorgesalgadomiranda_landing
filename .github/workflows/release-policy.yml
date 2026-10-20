@@ -189,15 +189,15 @@ jobs:
             fi
 
             # Fleet runner policy: private repositories are pinned 100%
-            # self-hosted; public repositories run CI on GitHub hosted runners
-            # and keep deploys on the self-hosted deploy lane. A blanket
-            # "ubuntu-latest is wrong" rule contradicted that policy and warned
-            # on every CI workflow of this public repo.
+            # self-hosted. Public repositories run CI and deploys on GitHub
+            # hosted runners, because a fleet runner reachable from a public
+            # repository would hold a user with production access (C09-2,
+            # CapLiving#525). Same pattern as omnimon_landing PR #11.
             if workflow_has "$file" "runs-on:[[:space:]]*['\"]?(ubuntu|macos|windows|blacksmith)-"; then
               if [ "$repo_is_private" = "true" ]; then
                 fail "\`${base}\` runs on a GitHub hosted runner. Private repositories are pinned 100% self-hosted."
               elif [ "$is_deploy" = true ]; then
-                fail "\`${base}\` is deploy-like but runs on a GitHub hosted runner. Deploys must stay on the self-hosted deploy lane."
+                note "- OK: \`${base}\` is a deploy on a GitHub hosted runner, which is the policy for a public repository."
               else
                 note "- OK: \`${base}\` runs CI on a GitHub hosted runner, which is the policy for a public repository."
               fi

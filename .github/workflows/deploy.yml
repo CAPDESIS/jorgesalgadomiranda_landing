@@ -35,12 +35,12 @@ permissions:
 jobs:
   deploy:
     name: FTP upload
-    # Production deploys use the trusted, isolated self-hosted deploy lane.
-    # This repository is public, so runner group 5 "deploys" is out of reach
-    # (allows_public_repositories=false). The reachable deploy runner is
-    # ci-runner-node-public-deploy-1 in group 6 "public-builds"; the
-    # public-only label pins the job to it instead of queueing forever.
-    runs-on: [self-hosted, ci-runner-node, deploy-only, public-only]
+    # GitHub-hosted runner on purpose. This repository is public, and a shared
+    # fleet runner reachable from public repositories would hold a user with
+    # production access (CAPDESIS/CapLiving#525 containment). The job needs
+    # only bun, python3, curl and the FTP action, so no fleet runner is needed.
+    # Same pattern as omnimon_landing PR #11.
+    runs-on: ubuntu-latest
     # Un solo runner puede atenderlo (ci-runner-node-public-deploy-1). Sin limite,
     # un deploy colgado lo retiene las 6 horas por defecto de GitHub y ningun otro
     # despliegue publico entra. Sin historico de ejecuciones con exito recientes,
@@ -355,7 +355,7 @@ jobs:
               exit 1
             fi
             grep -q 'assets/images/foto_perfil.png' /tmp/jsm-index.html || {
-              echo "::error::Live HTML missing self-hosted portrait path."
+              echo "::error::Live HTML missing portrait path."
               exit 1
             }
             echo "OK   /?v=${V} -> 200 and HTML content matches release ${V}"
