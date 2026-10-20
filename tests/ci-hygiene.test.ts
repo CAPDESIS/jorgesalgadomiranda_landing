@@ -107,22 +107,27 @@ describe('fleet runner policy for a public repository', () => {
       .filter((line) => line.includes('runs-on:'));
   }
 
-  test('deploy.yml stays on the self-hosted deploy lane', () => {
-    const lines = runsOnLines(read(join(dir, 'deploy.yml')));
+  test('deploy.yml runs on a GitHub hosted runner, not on a shared fleet runner', () => {
+    // C09-2: the production deploy ran on ci-runner-node-public-deploy-1, a
+    // runner reachable from public repositories that runs as a user with
+    // production access. A public repo must not hold deploy credentials on
+    // that lane. Same pattern as omnimon_landing PR #11.
+    const src = read(join(dir, 'deploy.yml'));
+    const lines = runsOnLines(src);
     expect(lines.length).toBe(1);
-    expect(GITHUB_HOSTED.test(lines[0])).toBe(false);
-    expect(lines[0]).toContain('self-hosted');
-    expect(lines[0]).toContain('deploy-only');
+    expect(GITHUB_HOSTED.test(lines[0])).toBe(true);
+    expect(lines[0]).toContain('ubuntu-latest');
+    expect(src.includes('self-hosted')).toBe(false);
+    expect(src.includes('deploy-only')).toBe(false);
   });
 
-  test('deploy.yml carries public-only so a real runner serves it', () => {
-    // Runner group "deploys" has allows_public_repositories=false, so the
-    // deploy-only runner in that group can never pick up this public repo.
-    // Only ci-runner-node-public-deploy-1, in group "public-builds", serves
-    // it, and that runner is reached through the public-only label. Without
-    // this label the deploy job queues forever instead of failing loudly.
-    const lines = runsOnLines(read(join(dir, 'deploy.yml')));
-    expect(lines[0]).toContain('public-only');
+  test('no workflow in this public repo references a self-hosted runner', () => {
+    const files = readdirSync(join(ROOT, dir)).filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'));
+    for (const file of files) {
+      for (const line of runsOnLines(read(join(dir, file)))) {
+        expect(line.includes('self-hosted')).toBe(false);
+      }
+    }
   });
 
   test('every self-hosted label set in this repo names a runner that exists', () => {
