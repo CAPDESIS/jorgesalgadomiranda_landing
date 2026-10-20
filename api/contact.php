@@ -1,7 +1,7 @@
 <?php
 /**
- * jorgesalgadomiranda.com contact form proxy — Resend primary, optional SMTP fallback.
- * Keeps Resend/SMTP credentials server-side (env or deploy-injected api/secrets.php).
+ * jorgesalgadomiranda.com contact form proxy. Resend is the only mail transport
+ * (fleet policy). Keeps the Resend credentials server-side (env or deploy-injected api/secrets.php).
  */
 ini_set('display_errors', '0');
 error_reporting(0);
@@ -13,9 +13,19 @@ require __DIR__ . '/lib/contact-validator.php';
 require __DIR__ . '/lib/rate-limit.php';
 require __DIR__ . '/lib/turnstile.php';
 require __DIR__ . '/lib/resend-mail.php';
-require __DIR__ . '/lib/smtp-mail.php';
 
 jsm_load_secrets();
+
+/**
+ * Answer every delivery failure the same way: 503 with a generic body. The
+ * transport detail goes to error_log only, never to the client.
+ */
+function jsm_contact_unavailable(): void
+{
+    http_response_code(503);
+    echo json_encode(['success' => false, 'message' => 'Contact service unavailable']);
+    exit;
+}
 
 header('Content-Type: application/json; charset=UTF-8');
 header('X-Content-Type-Options: nosniff');
@@ -108,51 +118,24 @@ if ($fields['topic'] !== '') {
 
 $html = jsm_resend_contact_html($fields);
 $resendConfig = jsm_resend_config_from_env();
-$smtpConfig = jsm_smtp_config_from_env();
 
-if ($resendConfig === null && $smtpConfig === null) {
-    error_log('[jsm-contact] RESEND_* and SMTP_* are both unset');
-    http_response_code(503);
-    echo json_encode(['success' => false, 'message' => 'Contact service unavailable']);
-    exit;
+if ($resendConfig === null) {
+    error_log('[jsm-contact] RESEND_API_KEY is not configured; contact delivery unavailable');
+    jsm_contact_unavailable();
 }
 
-$result = null;
-$inbox = jsm_env('RESEND_TO', 'jorgesalgadomiranda@protonmail.com');
-if ($resendConfig !== null) {
-    $inbox = $resendConfig['to'];
-    $result = jsm_resend_send_html(
-        $resendConfig,
-        $inbox,
-        $subject,
-        $html,
-        $fields['email']
-    );
-    if (!$result['ok'] && $smtpConfig !== null) {
-        error_log('[jsm-contact] Resend failed status=' . $result['status'] . '; trying SMTP fallback');
-        $result = jsm_smtp_send_html(
-            $smtpConfig,
-            $inbox,
-            $subject,
-            $html,
-            $fields['email']
-        );
-    }
-} elseif ($smtpConfig !== null) {
-    // Resend not configured — SMTP is last-resort only (fleet prefers Resend primary).
-    error_log('[jsm-contact] RESEND not configured; delivering via SMTP fallback only');
-    $result = jsm_smtp_send_html($smtpConfig, $inbox, $subject, $html, $fields['email']);
-}
+$inbox = $resendConfig['to'];
+$result = jsm_resend_send_html(
+    $resendConfig,
+    $inbox,
+    $subject,
+    $html,
+    $fields['email']
+);
 
-if ($result === null || !$result['ok']) {
-    $status = is_array($result) && isset($result['status']) ? (int) $result['status'] : 502;
-    if ($status < 400 || $status > 599) {
-        $status = 502;
-    }
-    error_log('[jsm-contact] delivery failed provider=' . (is_array($result) ? ($result['provider'] ?? '?') : '?') . ' status=' . $status);
-    http_response_code($status >= 500 ? $status : 502);
-    echo json_encode(['success' => false, 'message' => 'Upstream delivery failed']);
-    exit;
+if (!$result['ok']) {
+    error_log('[jsm-contact] Resend delivery failed status=' . (int) ($result['status'] ?? 0));
+    jsm_contact_unavailable();
 }
 
 http_response_code(200);

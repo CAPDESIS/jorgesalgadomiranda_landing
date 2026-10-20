@@ -1,6 +1,6 @@
 <?php
 /**
- * Validate contact form fields before Resend/SMTP delivery.
+ * Validate contact form fields before Resend delivery.
  */
 if (!defined('JSM_CONTACT_PROXY')) {
     http_response_code(403);

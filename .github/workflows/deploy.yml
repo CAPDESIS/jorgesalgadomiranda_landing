@@ -205,11 +205,6 @@ jobs:
           RESEND_FROM: ${{ secrets.RESEND_FROM }}
           RESEND_TO: ${{ secrets.RESEND_TO }}
           RESEND_REPLY_TO: ${{ secrets.RESEND_REPLY_TO }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          SMTP_FROM: ${{ secrets.SMTP_FROM }}
         run: |
           set -e
           # Replace the YOUR_* placeholders at deploy time so the committed
@@ -230,9 +225,9 @@ jobs:
             INJECTED="$INJECTED PUBLIC_POSTHOG_KEY"
           fi
           # Contact delivery secrets stay server-side in api/secrets.php (never HTML).
-          if [ -n "$RESEND_API_KEY" ] || [ -n "$SMTP_HOST" ]; then
+          if [ -n "$RESEND_API_KEY" ]; then
             python3 scripts/write-contact-secrets.py
-            INJECTED="$INJECTED RESEND_OR_SMTP"
+            INJECTED="$INJECTED RESEND_API_KEY"
           fi
           if [ -z "$INJECTED" ]; then
             echo "No optional tokens configured. Landing will keep placeholders; contact returns 503 until RESEND_* secrets are set."
@@ -269,7 +264,7 @@ jobs:
             fi
             echo "Contact Resend secrets injected into api/secrets.php."
           else
-            echo "::warning::RESEND_API_KEY is not configured. Contact form will return 503 until Resend secrets are set (SMTP-only is last-resort fallback)."
+            echo "::warning::RESEND_API_KEY is not configured. Contact form will return 503 until Resend secrets are set (Resend is the only mail provider)."
           fi
 
       - name: Deploy via FTPS

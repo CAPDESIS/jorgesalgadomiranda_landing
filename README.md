@@ -204,7 +204,7 @@ togglable, persisted.
 - **i18n**: two frozen dictionaries on `window.__I18N__`, swapped via
   `data-i18n` attribute walker.
 - **Forms**: vanilla JS with client-side RFC5322 regex + disposable
-  email blocklist, posting to same-origin `/api/contact.php` (Resend primary, optional SMTP fallback).
+  email blocklist, posting to same-origin `/api/contact.php` (Resend, the only mail provider).
 - **Analytics**: [Umami](https://umami.is/) (self-hosted) +
   [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/).
 - **Bookings**: [Cal.com](https://cal.com/) inline button.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write api/secrets.php from RESEND_*/SMTP_* environment variables at deploy time."""
+"""Write api/secrets.php from RESEND_* environment variables at deploy time."""
 
 from __future__ import annotations
 
@@ -15,11 +15,6 @@ def main() -> None:
         "RESEND_FROM",
         "RESEND_TO",
         "RESEND_REPLY_TO",
-        "SMTP_HOST",
-        "SMTP_PORT",
-        "SMTP_USER",
-        "SMTP_PASS",
-        "SMTP_FROM",
     ):
         val = os.environ.get(key, "").strip()
         if val:

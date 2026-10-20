@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Contract tests for the Resend/SMTP contact proxy.
+ * Contract tests for the Resend-only contact proxy.
  *
  *   php scripts/test-contact-api.php
  */
@@ -12,7 +12,6 @@ $root = dirname(__DIR__);
 require $root . '/api/lib/bootstrap-env.php';
 require $root . '/api/lib/contact-validator.php';
 require $root . '/api/lib/resend-mail.php';
-require $root . '/api/lib/smtp-mail.php';
 
 $failures = 0;
 $jsmTestProcesses = [];
@@ -81,6 +80,17 @@ function jsm_test_cleanup(): void
     foreach ($jsmTestCleanupDirectories as $path) {
         @rmdir($path);
     }
+}
+
+function jsm_test_remove_tree(string $dir): void
+{
+    if (!is_dir($dir)) {
+        return;
+    }
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST) as $entry) {
+        $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
+    }
+    @rmdir($dir);
 }
 
 function jsm_test_handle_signal(int $signal): void
@@ -216,31 +226,19 @@ $send = jsm_resend_send_html($config, 'jorgesalgadomiranda@protonmail.com', 'Tes
 check('resend mock send ok', $send['ok'] === true, 'status=' . ($send['status'] ?? '?') . ' body=' . substr((string) ($send['body'] ?? ''), 0, 120));
 check('resend mock id', ($send['decoded']['id'] ?? null) === 'email_test_1');
 
-// --- SMTP config gate ---
-putenv('SMTP_HOST');
-putenv('SMTP_USER');
-putenv('SMTP_PASS');
-unset($_ENV['SMTP_HOST'], $_ENV['SMTP_USER'], $_ENV['SMTP_PASS']);
-check('smtp config null without creds', jsm_smtp_config_from_env() === null);
-
-putenv('SMTP_HOST=smtp.example.com');
-putenv('SMTP_USER=user@example.com');
-putenv('SMTP_PASS=secret');
-putenv('SMTP_PORT=465');
-$_ENV['SMTP_HOST'] = 'smtp.example.com';
-$_ENV['SMTP_USER'] = 'user@example.com';
-$_ENV['SMTP_PASS'] = 'secret';
-$_ENV['SMTP_PORT'] = '465';
-$smtp = jsm_smtp_config_from_env();
-check('smtp config loads', is_array($smtp) && ($smtp['host'] ?? '') === 'smtp.example.com');
-
 // --- HTTP endpoint smoke via php -S ---
+// The contact rate limiter keeps 5 hits per IP per hour under sys_get_temp_dir().
+// Each run gets its own TMPDIR so repeated runs never exhaust the shared counter.
+$contactTmp = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'jsm-contact-test-' . bin2hex(random_bytes(6));
+mkdir($contactTmp, 0700, true);
+register_shutdown_function('jsm_test_remove_tree', $contactTmp);
 $docroot = $root;
 $port = random_int(21000, 45000);
 $out = tempnam(sys_get_temp_dir(), 'jsm_contact_out_');
 $err = tempnam(sys_get_temp_dir(), 'jsm_contact_err_');
 $env = [
     'PATH' => getenv('PATH') ?: '/usr/bin',
+    'TMPDIR' => $contactTmp,
     'RESEND_API_KEY' => 're_test_key',
     'RESEND_FROM' => 'Jorge <noreply@jorgesalgadomiranda.com>',
     'RESEND_TO' => 'jorgesalgadomiranda@protonmail.com',
@@ -353,6 +351,116 @@ $honeypotStatus = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
 curl_close($ch);
 $honeypotJson = is_string($honeypotBody) ? json_decode($honeypotBody, true) : null;
 check('honeypot soft-succeeds', $honeypotStatus === 200 && ($honeypotJson['success'] ?? false) === true);
+
+
+// --- Resend is the only mail transport (C07-11) ---
+// Fleet policy: correo solo por Resend. No SMTP code path may remain in api/.
+$smtpHits = [];
+$apiTree = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/api', FilesystemIterator::SKIP_DOTS));
+foreach ($apiTree as $apiFile) {
+    // secrets.php is generated at deploy time and gitignored; it is not code.
+    if (!$apiFile->isFile() || $apiFile->getExtension() !== 'php' || $apiFile->getFilename() === 'secrets.php') {
+        continue;
+    }
+    if (stripos((string) file_get_contents($apiFile->getPathname()), 'smtp') !== false) {
+        $smtpHits[] = substr($apiFile->getPathname(), strlen($root) + 1);
+    }
+}
+check('api/ has no SMTP transport', $smtpHits === [], implode(', ', $smtpHits));
+check('api/lib/smtp-mail.php removed', !file_exists($root . '/api/lib/smtp-mail.php'));
+
+/**
+ * Start a throwaway php -S for the contact endpoint, post the payload, stop it.
+ *
+ * @return array{ready: bool, status: int, body: string, log: string}
+ */
+function jsm_test_post_contact(string $root, string $tmp, array $env, string $payload): array
+{
+    $env['TMPDIR'] = $tmp;
+    $port = random_int(21000, 45000);
+    $out = tempnam(sys_get_temp_dir(), 'jsm_c_out_');
+    $err = tempnam(sys_get_temp_dir(), 'jsm_c_err_');
+    jsm_test_track_cleanup_file($out);
+    jsm_test_track_cleanup_file($err);
+    $proc = proc_open(
+        [PHP_BINARY, '-S', '127.0.0.1:' . $port, '-t', $root],
+        [1 => ['file', $out, 'a'], 2 => ['file', $err, 'a']],
+        $pipes,
+        $root,
+        $env
+    );
+    jsm_test_track_process($proc);
+    $ready = false;
+    for ($i = 0; $i < 50 && !$ready; $i++) {
+        usleep(100000);
+        $fp = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
+        if ($fp) {
+            fclose($fp);
+            $ready = true;
+        }
+    }
+    if (!$ready) {
+        jsm_test_stop_process($proc);
+        return ['ready' => false, 'status' => 0, 'body' => '', 'log' => ''];
+    }
+    $ch = curl_init('http://127.0.0.1:' . $port . '/api/contact.php');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ['Accept: application/json'],
+        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_TIMEOUT => 10,
+    ]);
+    $body = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    jsm_test_stop_process($proc);
+    return [
+        'ready' => true,
+        'status' => $status,
+        'body' => is_string($body) ? $body : '',
+        'log' => (string) file_get_contents($err),
+    ];
+}
+
+$contactPayload = http_build_query([
+    'name' => 'Jorge Salgado',
+    'email' => 'jorge@example.com',
+    'topic' => 'security',
+    'message' => 'Please review the authentication flow for our fleet apps.',
+]);
+
+// Resend configured but unreachable: 503, generic body, error logged server-side.
+$resendDown = jsm_test_post_contact($root, $contactTmp, [
+    'PATH' => getenv('PATH') ?: '/usr/bin',
+    'RESEND_API_KEY' => 're_test_key',
+    'RESEND_FROM' => 'Jorge <noreply@jorgesalgadomiranda.com>',
+    'RESEND_TO' => 'jorgesalgadomiranda@protonmail.com',
+    'RESEND_API_BASE' => 'http://127.0.0.1:1',
+], $contactPayload);
+check('resend down: server started', $resendDown['ready']);
+check('resend down: 503', $resendDown['status'] === 503, 'status=' . $resendDown['status']);
+$resendDownJson = json_decode($resendDown['body'], true);
+check('resend down: generic message', is_array($resendDownJson)
+    && ($resendDownJson['success'] ?? true) === false
+    && ($resendDownJson['message'] ?? '') === 'Contact service unavailable', substr($resendDown['body'], 0, 160));
+check('resend down: no transport detail leaked', stripos($resendDown['body'], '127.0.0.1') === false
+    && stripos($resendDown['body'], 'smtp') === false);
+check('resend down: error logged', strpos($resendDown['log'], '[jsm-contact]') !== false, substr($resendDown['log'], 0, 200));
+
+// Only SMTP_* configured (the old fallback): must not be used. 503, no SMTP attempt.
+$smtpOnly = jsm_test_post_contact($root, $contactTmp, [
+    'PATH' => getenv('PATH') ?: '/usr/bin',
+    'SMTP_HOST' => 'smtp.example.invalid',
+    'SMTP_PORT' => '465',
+    'SMTP_USER' => 'user@example.com',
+    'SMTP_PASS' => 'secret',
+    'SMTP_FROM' => 'user@example.com',
+], $contactPayload);
+check('smtp only: 503', $smtpOnly['status'] === 503, 'status=' . $smtpOnly['status']);
+$smtpOnlyJson = json_decode($smtpOnly['body'], true);
+check('smtp only: generic message', is_array($smtpOnlyJson)
+    && ($smtpOnlyJson['message'] ?? '') === 'Contact service unavailable');
+check('smtp only: error logged', strpos($smtpOnly['log'], '[jsm-contact]') !== false, substr($smtpOnly['log'], 0, 200));
 
 jsm_test_cleanup();
 
