@@ -27,13 +27,12 @@ not Web3Forms.
 | `UMAMI_WEBSITE_ID` | optional | Umami analytics script skips init (IIFE detects the `YOUR_` prefix). |
 | `CF_BEACON_TOKEN` | optional | Cloudflare Web Analytics beacon skips init. |
 | `PUBLIC_POSTHOG_KEY` | optional | PostHog stays on placeholder. |
-| `RESEND_API_KEY` | optional (required for live form) | `/api/contact.php` returns 503 until set (or SMTP fallback). |
+| `RESEND_API_KEY` | optional (required for live form) | `/api/contact.php` returns 503 until set. |
 | `RESEND_FROM` | optional | Defaults at inject time if key is set. |
 | `RESEND_TO` | optional | Defaults to `jorgesalgadomiranda@protonmail.com`. |
-| `SMTP_*` | optional | Fallback only when Resend fails/quota. |
 
 HTML placeholders (`YOUR_*`) are replaced at deploy for analytics only.
-Resend/SMTP credentials are written to `api/secrets.php`, never into HTML.
+Resend credentials are written to `api/secrets.php`, never into HTML.
 
 ---
 
@@ -60,10 +59,6 @@ Placeholders in `index.html` (`YOUR_UMAMI_WEBSITE_ID`, `YOUR_CF_BEACON_TOKEN`,
 ### RESEND_API_KEY / RESEND_FROM / RESEND_TO
 
 See [`RESEND_SETUP.md`](./RESEND_SETUP.md). Deploy generates `api/secrets.php`.
-
-### SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM
-
-Optional quota/outage fallback. Never SMTP-primary greenfield.
 
 ---
 

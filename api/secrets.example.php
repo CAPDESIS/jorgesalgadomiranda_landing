@@ -3,7 +3,7 @@
  * Example deploy-injected secrets for the contact proxy.
  * Copy to secrets.php on the host (or let CI generate it) — never commit secrets.php.
  *
- * Resend is primary. SMTP_* is optional fallback when Resend fails/quota.
+ * Resend is the only mail provider.
  */
 return [
     // Required for Resend primary:
@@ -16,11 +16,4 @@ return [
     // Cloudflare Turnstile (activates verification on the contact form):
     // 'TURNSTILE_SECRET_KEY' => '0x4AAAAA...',
 
-    // Optional SMTP fallback (Hostinger or other):
-    // 'SMTP_HOST' => 'smtp.hostinger.com',
-    // 'SMTP_PORT' => '465',
-    // 'SMTP_USER' => 'noreply@jorgesalgadomiranda.com',
-    // 'SMTP_PASS' => 'replace_me',
-    // 'SMTP_FROM' => 'Jorge Salgado Miranda <noreply@jorgesalgadomiranda.com>',
-    // 'SMTP_TLS' => 'true',
 ];

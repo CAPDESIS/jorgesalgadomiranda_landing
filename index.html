@@ -2653,7 +2653,7 @@
         localeInput.value = document.documentElement.dataset.lang || 'es';
       }
 
-      // Submit to same-origin PHP proxy (Resend primary; optional SMTP fallback).
+      // Submit to same-origin PHP proxy (Resend is the only mail provider).
       if (submitBtn) submitBtn.disabled = true;
       if (submitLabel) submitLabel.textContent = t('form.sending', 'Sending…');
 

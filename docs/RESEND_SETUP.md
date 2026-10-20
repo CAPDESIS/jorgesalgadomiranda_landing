@@ -1,8 +1,9 @@
 # Resend setup (contact form)
 
 Contact delivery uses the same-origin PHP proxy at `/api/contact.php`.
-**Resend is primary.** Optional Hostinger SMTP is fallback only when Resend
-fails or is unset. Web3Forms is retired.
+**Resend is the only mail provider** (fleet policy). There is no SMTP fallback:
+when Resend is unset or fails, the endpoint answers 503 with a generic body and
+logs the cause with `error_log`. Web3Forms is retired.
 
 Do not put `RESEND_API_KEY` in `index.html`.
 
@@ -14,8 +15,7 @@ Do not put `RESEND_API_KEY` in `index.html`.
 | `RESEND_FROM` | `Jorge Salgado Miranda <noreply@jorgesalgadomiranda.com>` |
 | `RESEND_TO` | `jorgesalgadomiranda@protonmail.com` |
 
-Optional: `RESEND_REPLY_TO`, and SMTP fallback `SMTP_HOST` / `SMTP_PORT` /
-`SMTP_USER` / `SMTP_PASS` / `SMTP_FROM`.
+Optional: `RESEND_REPLY_TO`.
 
 On deploy, CI writes `api/secrets.php` (gitignored) and uploads it with the
 site. `.htaccess` denies HTTP access to that file.

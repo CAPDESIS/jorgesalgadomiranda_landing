@@ -99,7 +99,6 @@ Other one-time settings worth checking:
 1. Create a Resend API key and verify the From domain.
 2. Add GitHub Actions secrets: `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_TO`.
 3. Redeploy. CI writes `api/secrets.php` (never commit it).
-4. Optional SMTP fallback: `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM`.
 
 See [`RESEND_SETUP.md`](./RESEND_SETUP.md) and [`GITHUB_SECRETS.md`](./GITHUB_SECRETS.md).
 
