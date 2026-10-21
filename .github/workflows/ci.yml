@@ -58,6 +58,11 @@ jobs:
         run: python3 -m py_compile scripts/validate-static-site.py
       - name: Validate local deploy script syntax
         run: bash -n scripts/deploy.sh
+      - name: PHP advisory .htaccess contract (CVE-2026-109618/109619)
+        # Serves the .htaccess workaround block from Apache + mod_php 8.5.12
+        # (pinned by digest) and probes real requests; fails when the block is
+        # missing or not applied.
+        run: bash scripts/php-advisory-htaccess-test.sh
       - name: Validate release SHA guard fails before deploy
         run: |
           set -euo pipefail
