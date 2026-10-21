@@ -3,6 +3,29 @@
 # Handles: HTTPS redirect, security headers, gzip, long cache.
 # ────────────────────────────────────────────────────────────
 
+# BEGIN php-advisory-2026-10-21
+# CVE-2026-109618 / CVE-2026-109619 (PHP advisory 2026-10-21, unauthenticated
+# RCE in request parsing; fixed in 8.2.35, 8.3.36, 8.4.27 and 8.5.12). Hostinger
+# serves api/contact.php from LiteSpeed (X-Turbo-Charged-By, measured
+# 2026-10-21); the PHP version is hidden and is chosen in hPanel. Apply the
+# advisory workarounds before PHP parses the request body. contact.php reads
+# multipart or urlencoded form fields and accepts no file uploads, so 1M is
+# above every legitimate request. php_value/php_flag are PERDIR here, so
+# ini_set() cannot raise post_max_size or re-enable upload progress. Guarded
+# so a server without either module ignores the block instead of answering 500.
+# Contract: scripts/php-advisory-htaccess-test.sh.
+<IfModule LiteSpeed>
+    php_flag session.upload_progress.enabled off
+    php_value memory_limit -1
+    php_value post_max_size 1M
+</IfModule>
+<IfModule mod_php.c>
+    php_flag session.upload_progress.enabled off
+    php_value memory_limit -1
+    php_value post_max_size 1M
+</IfModule>
+# END php-advisory-2026-10-21
+
 # -------- Force HTTPS + apex → www-canonical is NOT used; we stay on apex --------
 <IfModule mod_rewrite.c>
   RewriteEngine On
