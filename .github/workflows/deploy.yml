@@ -122,7 +122,16 @@ jobs:
           python3 -I "$RUNNER_TEMP/deploy-gates.py" ci --runs-file "$runs_file" --sha "$RELEASE_SHA"
 
       - name: Gate on a rebuildable rollback point
-        # Replaces the typed confirm_backup_ready.
+        # Replaces the typed confirm_backup_ready. The public URL is tried
+        # first; Cloudflare Bot Fight Mode answers 403 to GitHub-hosted runner
+        # IPs by TLS fingerprint (see the smoke step below), so when HTTPS does
+        # not answer the served marker is read from the origin over FTPS with
+        # the deploy credentials (chroot = public_html). Either way the SHA
+        # comes from the file production serves; nothing is assumed.
+        env:
+          RAW_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
           set -euo pipefail
           served="$RUNNER_TEMP/served_version.json"
@@ -138,7 +147,29 @@ jobs:
             if [ "$attempt" -lt 3 ]; then sleep 10; fi
           done
           if [ "$ok" -ne 1 ]; then
-            echo "::error::live /version.json did not answer after 3 tries; the current release cannot be identified for rollback."
+            echo "::notice::public /version.json did not answer (edge bot protection); reading the served marker from the origin over FTPS."
+            host=$(printf '%s' "$RAW_HOST" | tr -d '[:space:]\r' | sed -E 's#^[a-zA-Z]+://##' | sed 's#/.*##')
+            if [ -z "$host" ] || [ -z "$FTP_USER" ] || [ -z "$FTP_PASSWORD" ]; then
+              echo "::error::FTP credentials are missing; the current release cannot be identified for rollback."
+              exit 1
+            fi
+            echo "::add-mask::$host"
+            netrc="$RUNNER_TEMP/gate.netrc"
+            umask 077
+            printf 'machine %s login %s password %s\n' "$host" "$FTP_USER" "$FTP_PASSWORD" > "$netrc"
+            for attempt in 1 2 3; do
+              # TLS 1.2: Hostinger FTPS drops TLS 1.3 data channels.
+              if curl -fsS --max-time 30 --ssl-reqd --tlsv1.2 --tls-max 1.2 \
+                --netrc-file "$netrc" "ftp://${host}/version.json" > "$served"; then
+                ok=1
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then sleep 10; fi
+            done
+            rm -f "$netrc"
+          fi
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::/version.json did not answer over HTTPS or from the origin over FTPS; the current release cannot be identified for rollback."
             exit 1
           fi
           python3 -I "$RUNNER_TEMP/deploy-gates.py" rollback-point --version-file "$served" --main-ref refs/remotes/origin/main
