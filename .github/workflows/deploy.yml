@@ -157,10 +157,25 @@ jobs:
             netrc="$RUNNER_TEMP/gate.netrc"
             umask 077
             printf 'machine %s login %s password %s\n' "$host" "$FTP_USER" "$FTP_PASSWORD" > "$netrc"
+            # FTP_HOST is an IP; Hostinger presents a *.hstgr.io certificate.
+            # Read the certificate name, accept only an hstgr.io name, and
+            # connect by that name so curl still verifies the full chain.
+            tls_name=$(openssl s_client -starttls ftp -connect "${host}:21" -servername "$host" </dev/null 2>/dev/null \
+              | openssl x509 -noout -ext subjectAltName 2>/dev/null \
+              | tr ',' '\n' | sed -n 's/^ *DNS://p' | sed 's/^\*\./ftp./' \
+              | grep -E '^[A-Za-z0-9.-]+\.hstgr\.io$' | head -n1) || tls_name=""
+            if [ -z "$tls_name" ]; then
+              rm -f "$netrc"
+              echo "::error::the FTPS certificate does not carry an hstgr.io name; the current release cannot be identified for rollback."
+              exit 1
+            fi
+            echo "::add-mask::$tls_name"
+            printf 'machine %s login %s password %s\n' "$tls_name" "$FTP_USER" "$FTP_PASSWORD" > "$netrc"
             for attempt in 1 2 3; do
               # TLS 1.2: Hostinger FTPS drops TLS 1.3 data channels.
               if curl -fsS --max-time 30 --ssl-reqd --tlsv1.2 --tls-max 1.2 \
-                --netrc-file "$netrc" "ftp://${host}/version.json" > "$served"; then
+                --connect-to "${tls_name}:21:${host}:21" \
+                --netrc-file "$netrc" "ftp://${tls_name}/version.json" > "$served"; then
                 ok=1
                 break
               fi
