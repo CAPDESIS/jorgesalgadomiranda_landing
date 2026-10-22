@@ -113,6 +113,20 @@ describe('deploy.yml: typed confirmations are replaced by measured gates', () =>
     expect(block).toContain('cannot be identified for rollback');
   });
 
+  test('the rollback-point gate reads the origin over FTPS when the edge blocks the runner', () => {
+    const start = stepIndex('Gate on a rebuildable rollback point');
+    const end = stepIndex('Install Bun and run tests');
+    const block = workflow.slice(start, end);
+    // Run 39698426255: Bot Fight Mode answered 403 to the runner three times
+    // and the gate refused a healthy release. The origin read must exist,
+    // require TLS, and keep the credentials out of the command line.
+    expect(block).toContain('--ssl-reqd');
+    expect(block).toContain('--netrc-file');
+    expect(block).toContain('ftp://${host}/version.json');
+    expect(block).not.toMatch(/-u\s+"?\$FTP_USER/);
+    expect(block).toContain('rm -f "$netrc"');
+  });
+
   test('the job stays on a GitHub-hosted runner (CapLiving#525 containment)', () => {
     expect(workflow).toContain('runs-on: ubuntu-latest');
     expect(workflow).not.toContain('self-hosted');
