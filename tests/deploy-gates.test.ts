@@ -122,7 +122,13 @@ describe('deploy.yml: typed confirmations are replaced by measured gates', () =>
     // require TLS, and keep the credentials out of the command line.
     expect(block).toContain('--ssl-reqd');
     expect(block).toContain('--netrc-file');
-    expect(block).toContain('ftp://${host}/version.json');
+    expect(block).toContain('ftp://${tls_name}/version.json');
+    // Run 39698812012: FTP_HOST is an IP and the certificate is *.hstgr.io.
+    // TLS verification stays on; the name comes from the certificate and must
+    // be an hstgr.io name.
+    expect(block).toContain('--connect-to "${tls_name}:21:${host}:21"');
+    expect(block).toContain("hstgr\\.io$");
+    expect(block).not.toMatch(/--insecure|\s-k\s/);
     expect(block).not.toMatch(/-u\s+"?\$FTP_USER/);
     expect(block).toContain('rm -f "$netrc"');
   });
