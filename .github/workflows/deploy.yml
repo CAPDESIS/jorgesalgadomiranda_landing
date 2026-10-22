@@ -1,5 +1,17 @@
 name: Deploy to production
 
+# Production preconditions are measured by the workflow, not typed by a
+# person. confirm_release_green and confirm_backup_ready are gone (T095):
+#   - "Gate on green CI for the release SHA" requires successful push runs on
+#     main of CI, test and gitleaks for the exact release SHA.
+#   - "Gate on a rebuildable rollback point" reads the live /version.json and
+#     requires the served SHA to be a commit in origin/main, so the release
+#     this deploy replaces can be rebuilt and redeployed from git. The site
+#     holds no data, so that is what a backup means here.
+# Both run scripts/deploy-gates.py taken from origin/main and fail closed.
+# confirm_no_p0_p1_alerts stays typed by operator decision: Alertmanager needs
+# a production SSH identity that this public repo on a GitHub-hosted runner
+# must not hold (CapLiving#525 containment, audits ALERT-GATE).
 on:
   workflow_dispatch:
     inputs:
@@ -7,18 +19,10 @@ on:
         description: 'Exact 40-character commit SHA from main to deploy.'
         required: true
         default: ''
-      confirm_release_green:
-        description: 'Type yes after local/CI validation for this release SHA.'
-        required: true
-        default: 'no'
       confirm_no_p0_p1_alerts:
         description: 'Type yes to confirm central monitoring has no open P0/P1 alerts.'
         required: true
         default: 'no'
-      confirm_backup_ready:
-        description: 'Type yes if backup is current, or n/a if this release does not touch data.'
-        required: true
-        default: 'n/a'
 
 concurrency:
   group: deploy-production
@@ -69,18 +73,10 @@ jobs:
             echo "::error::release_sha must be the exact 40-character production commit SHA."
             exit 1
           fi
-          if [ "${{ inputs.confirm_release_green }}" != "yes" ]; then
-            echo "::error::confirm_release_green=yes is required."
-            exit 1
-          fi
           if [ "${{ inputs.confirm_no_p0_p1_alerts }}" != "yes" ]; then
             echo "::error::confirm_no_p0_p1_alerts=yes is required."
             exit 1
           fi
-          case "${{ inputs.confirm_backup_ready }}" in
-            yes|n/a) ;;
-            *) echo "::error::confirm_backup_ready must be yes or n/a."; exit 1 ;;
-          esac
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -101,6 +97,51 @@ jobs:
             echo "::error::release_sha is not contained in origin/main."
             exit 1
           }
+
+      - name: Load deploy gates from origin/main
+        run: |
+          set -euo pipefail
+          # Taken from origin/main, not from the release tree, so an older
+          # release SHA is still gated by the current rules.
+          git show refs/remotes/origin/main:scripts/deploy-gates.py > "$RUNNER_TEMP/deploy-gates.py"
+          test -s "$RUNNER_TEMP/deploy-gates.py" || { echo "::error::scripts/deploy-gates.py is missing on origin/main."; exit 1; }
+
+      - name: Gate on green CI for the release SHA
+        # Replaces the typed confirm_release_green.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          runs_file="$RUNNER_TEMP/release_runs.json"
+          curl -fsS --retry 3 --retry-all-errors --max-time 30 \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_SHA}&event=push&per_page=100" \
+            > "$runs_file" || { echo "::error::could not list Actions runs for ${RELEASE_SHA}; refusing to deploy unchecked."; exit 1; }
+          python3 -I "$RUNNER_TEMP/deploy-gates.py" ci --runs-file "$runs_file" --sha "$RELEASE_SHA"
+
+      - name: Gate on a rebuildable rollback point
+        # Replaces the typed confirm_backup_ready.
+        run: |
+          set -euo pipefail
+          served="$RUNNER_TEMP/served_version.json"
+          ok=0
+          for attempt in 1 2 3; do
+            if curl -fsSL --max-time 25 \
+              -A "Mozilla/5.0 (compatible; JSMSmokeTest/1.0; +https://jorgesalgadomiranda.com)" \
+              -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
+              "https://jorgesalgadomiranda.com/version.json?gate=${GITHUB_RUN_ID}" > "$served"; then
+              ok=1
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep 10; fi
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::live /version.json did not answer after 3 tries; the current release cannot be identified for rollback."
+            exit 1
+          fi
+          python3 -I "$RUNNER_TEMP/deploy-gates.py" rollback-point --version-file "$served" --main-ref refs/remotes/origin/main
 
       - name: Install Bun and run tests
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
