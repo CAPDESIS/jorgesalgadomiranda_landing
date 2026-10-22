@@ -404,6 +404,9 @@ jobs:
       - name: Post-deploy smoke test
         env:
           SHA: ${{ steps.release.outputs.release_sha }}
+          RAW_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
           set -e
           # Cloudflare Bot Fight Mode challenges HTML and XML endpoints
@@ -520,6 +523,34 @@ jobs:
             SERVED_SHA=""
             [ "$attempt" -lt 3 ] && sleep 10
           done
+          if [ -z "$SERVED_SHA" ] && [ -n "${RAW_HOST:-}" ]; then
+            # Since 2026-10-21 Bot Fight Mode also answers 403 to this runner
+            # for /version.json (run 39699173273), so the edge read comes back
+            # unreadable. Read the marker the origin now serves over FTPS
+            # (same verified-name method as the rollback-point gate). This
+            # proves the upload landed; the edge copy is covered by the
+            # fleet content probes (DomainWatch) and is logged as unverified.
+            host=$(printf '%s' "$RAW_HOST" | tr -d '[:space:]\r' | sed -E 's#^[a-zA-Z]+://##' | sed 's#/.*##')
+            tls_name=$(openssl s_client -starttls ftp -connect "${host}:21" -servername "$host" </dev/null 2>/dev/null \
+              | openssl x509 -noout -ext subjectAltName 2>/dev/null \
+              | tr ',' '\n' | sed -n 's/^ *DNS://p' | sed 's/^\*\./ftp./' \
+              | grep -E '^[A-Za-z0-9.-]+\.hstgr\.io$' | head -n1) || tls_name=""
+            if [ -n "$tls_name" ]; then
+              echo "::add-mask::$host"
+              echo "::add-mask::$tls_name"
+              netrc="$RUNNER_TEMP/smoke.netrc"
+              ( umask 077; printf 'machine %s login %s password %s\n' "$tls_name" "$FTP_USER" "$FTP_PASSWORD" > "$netrc" )
+              ORIGIN_JSON="$(curl -fsS --max-time 30 --ssl-reqd --tlsv1.2 --tls-max 1.2 \
+                --connect-to "${tls_name}:21:${host}:21" \
+                --netrc-file "$netrc" "ftp://${tls_name}/version.json" || true)"
+              rm -f "$netrc"
+              SERVED_SHA="$(SHA_JSON="$ORIGIN_JSON" python3 -c "import json,os; print(json.loads(os.environ['SHA_JSON']).get('sha',''))" 2>/dev/null || true)"
+              if [ "$SERVED_SHA" = "$SHA" ]; then
+                echo "OK   origin /version.json (FTPS) -> sha $SERVED_SHA"
+                echo "::warning::edge /version.json was not readable from this runner (Bot Fight Mode); the origin serves $SHA and the edge copy is left to the fleet content probes."
+              fi
+            fi
+          fi
           if [ "$SERVED_SHA" != "$SHA" ]; then
             echo "::error::/version.json does not serve release $SHA after 3 attempts (last: ${SERVED_SHA:-unreadable})."
             exit 1
