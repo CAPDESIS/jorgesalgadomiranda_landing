@@ -133,6 +133,19 @@ describe('deploy.yml: typed confirmations are replaced by measured gates', () =>
     expect(block).toContain('rm -f "$netrc"');
   });
 
+  test('the post-deploy parity check falls back to the origin over verified FTPS', () => {
+    const start = stepIndex('Post-deploy smoke test');
+    const block = workflow.slice(start);
+    // Run 39699173273 uploaded the release and then failed: the edge
+    // answered 403 for /version.json. The fallback must verify TLS by the
+    // hstgr.io certificate name and still require the exact release SHA.
+    expect(block).toContain('ftp://${tls_name}/version.json');
+    expect(block).toContain('--ssl-reqd');
+    expect(block).toContain('rm -f "$netrc"');
+    expect(block).not.toMatch(/--insecure/);
+    expect(block).toContain('if [ "$SERVED_SHA" != "$SHA" ]; then');
+  });
+
   test('the job stays on a GitHub-hosted runner (CapLiving#525 containment)', () => {
     expect(workflow).toContain('runs-on: ubuntu-latest');
     expect(workflow).not.toContain('self-hosted');
