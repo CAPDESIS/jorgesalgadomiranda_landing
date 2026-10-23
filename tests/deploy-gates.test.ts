@@ -99,7 +99,7 @@ describe('deploy.yml: typed confirmations are replaced by measured gates', () =>
     expect(ci).toBeLessThan(rollback);
     expect(rollback).toBeLessThan(ftp);
     expect(workflow).toContain('git show refs/remotes/origin/main:scripts/deploy-gates.py');
-    expect(workflow).toContain('deploy-gates.py" ci --runs-file');
+    expect(workflow).toContain('deploy-gates.py" ci-wait --repository');
     expect(workflow).toContain('deploy-gates.py" rollback-point --version-file');
   });
 
@@ -109,7 +109,8 @@ describe('deploy.yml: typed confirmations are replaced by measured gates', () =>
     const block = workflow.slice(start, end);
     expect(block).not.toContain('continue-on-error');
     expect(block).not.toContain('|| true');
-    expect(block).toContain('refusing to deploy unchecked');
+    // The CI gate's refusal text lives in the script it runs from origin/main.
+    expect(readFileSync(SCRIPT, 'utf8')).toContain('refusing to deploy unchecked');
     expect(block).toContain('cannot be identified for rollback');
   });
 
@@ -232,5 +233,150 @@ describe('deploy-gates.py rollback-point', () => {
   test('fails when version.json is not JSON (for example a parked or challenge page)', () => {
     expect(served('v-html.json', '<html>parked</html>').status).toBe(1);
     expect(served('v-empty.json', '').status).toBe(1);
+  });
+});
+
+// GATES-2: the CI gate read the runs listing once (one curl). GitHub lags
+// that listing: fragantia deploy runs 39805359214 and 39807905769
+// (2026-10-22) read "no run for this SHA" while completed successes already
+// existed, and CapValida run 39807128934 read conclusion None for a job that
+// had finished. One read is not evidence of absence. ci-wait re-reads,
+// bounded, while a required workflow has no run or its run has no
+// conclusion yet, judges a red run at once, and fails closed at the ceiling.
+describe('deploy-gates.py ci-wait (bounded re-read against API lag)', () => {
+  type Reply = { status?: number; body: unknown };
+
+  // The fake GitHub API is a small Python HTTP server: the happy-dom
+  // preload replaces the global Response, so Bun.serve cannot answer here.
+  const FAKE_API = `
+import http.server, json, sys
+replies = json.load(open(sys.argv[1]))
+log = open(sys.argv[2], "a", buffering=1)
+calls = {"filtered": 0, "main": 0}
+class H(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+    def do_GET(self):
+        kind = "filtered" if "head_sha=" in self.path else "main"
+        log.write(kind + " " + self.path + "\\n")
+        if self.headers.get("Authorization") != "Bearer canary-token":
+            reply = {"status": 401, "body": {"message": "Bad credentials"}}
+        else:
+            seq = replies.get(kind) or [{"body": {"workflow_runs": []}}]
+            reply = seq[min(calls[kind], len(seq) - 1)]
+            calls[kind] += 1
+        body = json.dumps(reply["body"]).encode()
+        self.send_response(reply.get("status", 200))
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+print(srv.server_address[1], flush=True)
+srv.serve_forever()
+`;
+  let serial = 0;
+
+  async function serveAndRun(replies: { filtered: Reply[]; main?: Reply[] }, extra: string[] = []) {
+    serial += 1;
+    const serverPath = join(work, 'fake_api.py');
+    writeFileSync(serverPath, FAKE_API);
+    const repliesPath = join(work, `replies-${serial}.json`);
+    const logPath = join(work, `api-${serial}.log`);
+    writeFileSync(repliesPath, JSON.stringify(replies));
+    writeFileSync(logPath, '');
+    const server = Bun.spawn(['python3', '-I', serverPath, repliesPath, logPath], { stdout: 'pipe', stderr: 'pipe' });
+    try {
+      const reader = server.stdout.getReader();
+      let first = '';
+      while (!first.includes('\n')) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        first += new TextDecoder().decode(chunk.value);
+      }
+      const port = Number.parseInt(first.trim(), 10);
+      expect(port).toBeGreaterThan(0);
+      const proc = Bun.spawn(
+        [
+          'python3', '-I', SCRIPT, 'ci-wait',
+          '--repository', 'owner/repo', '--sha', SHA,
+          '--api-url', `http://127.0.0.1:${port}`,
+          '--attempts', '4', '--delay', '0', '--transport-pause', '0',
+          ...extra,
+        ],
+        { cwd: ROOT, env: { ...process.env, GITHUB_TOKEN: 'canary-token' }, stdout: 'pipe', stderr: 'pipe' },
+      );
+      const [stdout, stderr] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+      const status = await proc.exited;
+      const seen = readFileSync(logPath, 'utf8').split('\n').filter(Boolean);
+      const filteredCalls = seen.filter((l) => l.startsWith('filtered ')).length;
+      const mainCalls = seen.filter((l) => l.startsWith('main ')).length;
+      return { status, stdout, stderr, filteredCalls, mainCalls, seen };
+    } finally {
+      server.kill();
+      await server.exited;
+    }
+  }
+
+  const green = { workflow_runs: [okRun('CI'), okRun('test'), okRun('gitleaks')] };
+
+  test('a listing that lags (no runs, then green) deploys after a re-read', async () => {
+    const out = await serveAndRun({ filtered: [{ body: { workflow_runs: [] } }, { body: green }] });
+    expect(out.stdout + out.stderr).not.toContain('::error::');
+    expect(out.status).toBe(0);
+    expect(out.filteredCalls).toBe(2);
+  });
+
+  test('a run that is still in flight is re-read until it concludes', async () => {
+    const inFlight = { workflow_runs: [okRun('CI', { status: 'in_progress', conclusion: null }), okRun('test'), okRun('gitleaks')] };
+    const out = await serveAndRun({ filtered: [{ body: inFlight }, { body: inFlight }, { body: green }] });
+    expect(out.status).toBe(0);
+    expect(out.filteredCalls).toBe(3);
+  });
+
+  test('the head_sha listing lag falls back to the main push listing', async () => {
+    const out = await serveAndRun({
+      filtered: [{ body: { workflow_runs: [] } }],
+      main: [{ body: { workflow_runs: [okRun('CI', { head_sha: 'b'.repeat(40) }), ...green.workflow_runs] } }],
+    });
+    expect(out.status).toBe(0);
+    expect(out.filteredCalls).toBe(1);
+    expect(out.seen.some((p) => p.includes('branch=main') && p.includes('event=push'))).toBe(true);
+  });
+
+  test('a red run is judged at once, without re-reading', async () => {
+    const red = { workflow_runs: [okRun('CI'), okRun('test', { conclusion: 'failure' }), okRun('gitleaks')] };
+    const out = await serveAndRun({ filtered: [{ body: red }] });
+    expect(out.status).toBe(1);
+    expect(out.stdout).toContain('::error::');
+    expect(out.stdout).toContain('test');
+    expect(out.filteredCalls).toBe(1);
+  });
+
+  test('a run that never appears fails closed at the ceiling, loudly', async () => {
+    const out = await serveAndRun({ filtered: [{ body: { workflow_runs: [okRun('CI'), okRun('test')] } }] });
+    expect(out.status).toBe(1);
+    expect(out.filteredCalls).toBe(4);
+    expect(out.stdout).toContain('::error::');
+    expect(out.stdout).toContain('gitleaks');
+    expect(out.stdout).toContain('refusing to deploy unchecked');
+  });
+
+  test('an API that keeps failing fails closed', async () => {
+    const out = await serveAndRun({ filtered: [{ status: 502, body: { message: 'bad gateway' } }] });
+    expect(out.status).toBe(1);
+    expect(out.stdout).toContain('::error::');
+  });
+
+  test('the workflow uses ci-wait from origin/main instead of a single curl read', () => {
+    const start = stepIndex('Gate on green CI for the release SHA');
+    const end = stepIndex('Gate on a rebuildable rollback point');
+    const block = workflow.slice(start, end);
+    expect(block).toContain('deploy-gates.py" ci-wait');
+    expect(block).not.toContain('curl');
+    expect(block).not.toContain('--runs-file');
   });
 });
