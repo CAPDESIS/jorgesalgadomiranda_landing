@@ -13,7 +13,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: jsm-landing-ci-${{ github.ref }}
+  group: jsm-landing-ci-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
   # Never cancel the main verdict (fleet guard G2); stale PR runs may still cancel.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
