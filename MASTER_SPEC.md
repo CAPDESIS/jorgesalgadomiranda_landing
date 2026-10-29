@@ -23,7 +23,7 @@ Client readiness: **Partial**. The code and project surfaces are documented, but
 - `jorgesalgadomiranda_landing`
 
 ### Test roots
-- none-found
+- `jorgesalgadomiranda_landing/tests` (12 `*.test.ts` + `setup.ts`, run via `bun test`)
 
 ## Architecture and Source Map
 
@@ -40,7 +40,8 @@ Client readiness: **Partial**. The code and project surfaces are documented, but
 ## Integration Boundaries
 
 ### Endpoint or API configuration evidence
-- none-found
+- `jorgesalgadomiranda_landing/api/contact.php` (163 lines; same-origin contact proxy, Resend via deploy-injected `api/secrets.php`)
+- `jorgesalgadomiranda_landing/api/lib/`
 
 ### Boundary classification
 - Integration boundaries are considered partial until both source-side and target-side evidence are validated.
@@ -67,9 +68,9 @@ Root cleanup reviewed JSM landing handoffs and retained these durable notes:
 | scope | command | status | reason | next_action |
 |-------|---------|--------|--------|-------------|
 | docs | `manual-review` | pass | Filesystem, manifest, Markdown, and route-pattern evidence recorded by audit generator. | none |
-| web | `bun run lint` | skipped | Runtime or toolchain validation was not executed during documentation generation. | Run `bun run lint` from `jorgesalgadomiranda_landing` and update validation evidence. |
-| web | `bun run build` | skipped | Runtime or toolchain validation was not executed during documentation generation. | Run `bun run build` from `jorgesalgadomiranda_landing` and update validation evidence. |
-| infra | `docker compose config / bash -n reviewed scripts` | skipped | Runtime or toolchain validation was not executed during documentation generation. | Run `docker compose config / bash -n reviewed scripts` from `jorgesalgadomiranda_landing` and update validation evidence. |
+| web | `bun run lint` | pass | `Static site validation OK`, exit 0, measured 2026-10-14. | none |
+| web | `bun run build` | pass | Alias of lint validator (no bundler); `bun test` 173 pass / 0 fail, measured 2026-10-14. | none |
+| infra | `shellcheck scripts/*.sh` | pass | Exit 0, only SC1091 info (`.env` not followed); no compose file in repo. Measured 2026-10-14. | none |
 
 ## Documentation Drift Findings
 

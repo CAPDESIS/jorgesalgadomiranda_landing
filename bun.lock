@@ -5,7 +5,7 @@
     "": {
       "name": "jorgesalgadomiranda-landing",
       "devDependencies": {
-        "@happy-dom/global-registrator": "latest",
+        "@happy-dom/global-registrator": "^20.11.0",
       },
     },
   },

@@ -18,13 +18,13 @@ Most portfolio templates stop at "hero + projects + contact form". This
 one is a complete launch kit with things that are rarely considered on
 other personal sites:
 
-- **Zero build step, zero runtime.** One `index.html` (~180 KB, 2843
+- **Zero build step, zero runtime.** One `index.html` (~180 KB, 2980
   lines) plus `assets/styles.css`, `assets/i18n.js` and small modules
   under `assets/js/` (some inline JS/CSS remains), self-hosted woff2
   fonts. No bundler, no framework, no Node runtime. Ships as static
   files over FTP.
 - **Bilingual with enforced parity.** ES + EN i18n dictionaries with
-  341 keys each, a Python parity check, and a token system
+  343 keys each, a Python parity check, and a token system
   (`{{yearsSince:YYYY}}`) so tenure copy re-computes itself every new
   year.
 - **Dual-theme OKLCH design system.** Theme + language toggles
@@ -40,8 +40,10 @@ other personal sites:
   offer, Resend contact form (same-origin PHP proxy) with honeypot + RFC5322 regex +
   ~70-entry disposable-email blocklist, Cal.com CTA, Capdesis tier
   card for corporate invoicing.
-- **Analytics built for privacy.** Umami (self-hosted) plus Cloudflare
-  Web Analytics, no cookies, no consent banner needed.
+- **Analytics built for privacy.** Umami (self-hosted), Cloudflare
+  Web Analytics, and PostHog behind a per-provider consent banner
+  (`assets/js/consent.js`, `assets/js/cookie-banner.js`); unconfigured
+  providers stay silent until deploy injects real tokens.
 - **SEO that actually shows up.** hreflang `es-MX`/`en`/`x-default`,
   canonical, `sitemap.xml`, `ProfessionalService` JSON-LD with a full
   `OfferCatalog`, `WebSite` schema, open `robots.txt` for the AI answer
@@ -147,7 +149,7 @@ template. Credit is how this stays sustainable.
 
 ```
 jorgesalgadomiranda_landing/
-├── index.html                           Landing page (2843 lines; links assets/styles.css + assets/i18n.js, some inline JS/CSS remains)
+├── index.html                           Landing page (2980 lines; links assets/styles.css + assets/i18n.js, some inline JS/CSS remains)
 ├── og.html, og.png                      Source + rendered Open Graph card
 ├── robots.txt                           Crawl policy (open to AI answer engines)
 ├── sitemap.xml                          hreflang es-MX / en
@@ -158,7 +160,7 @@ jorgesalgadomiranda_landing/
 │   └── Jorge_Salgado_Miranda_CV_ES.html ATS-compatible CV (ES)
 ├── assets/
 │   ├── styles.css                       Main stylesheet (linked from index.html)
-│   ├── i18n.js                          ES/EN dictionaries (341 keys each)
+│   ├── i18n.js                          ES/EN dictionaries (343 keys each)
 │   ├── js/                              Small JS modules (consent, cookie banner, email validation, i18n utils, welcome modal)
 │   └── cv/                              Rendered PDFs (built by scripts/build-cv-pdfs.sh)
 ├── fonts/                               Self-hosted woff2 (Instrument Serif, Geist, Geist Mono)
@@ -170,6 +172,10 @@ jorgesalgadomiranda_landing/
 │   ├── TECHNOLOGIES.md                  Every tech choice, with reasoning
 │   ├── DEPLOY.md                        Deploy flow + troubleshooting
 │   ├── MANUAL_SETUP.md                  Dashboard-only action checklist
+│   ├── GITHUB_SECRETS.md                Full Actions secrets reference
+│   ├── RESEND_SETUP.md                  Contact-form Resend setup
+│   ├── DESIGN_SYSTEM.md                 Visual/interaction vocabulary
+│   ├── TICKETS.md                       Living audit log
 │   ├── CHANGELOG.md                     What shipped, when, why
 │   └── CERTIFICATIONS.md                Cert path rationale
 ├── .github/workflows/deploy.yml         CI FTP deploy to Hostinger
@@ -241,17 +247,19 @@ Full deploy doc: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 Before going live, replace these in `index.html`:
 
-| Placeholder                 | Source                                |
-|-----------------------------|---------------------------------------|
-| `YOUR_UMAMI_WEBSITE_ID`     | Your Umami dashboard → Websites → Add |
-| `YOUR_CF_BEACON_TOKEN`      | Cloudflare → Analytics → Web Analytics |
-| `RESEND_API_KEY` (+ FROM/TO) | Resend dashboard → deploy injects `api/secrets.php` |
-| `jorgesalgadomiranda/30min` | Your Cal.com event type slug          |
+| Placeholder                          | Source                                |
+|--------------------------------------|---------------------------------------|
+| `YOUR_UMAMI_WEBSITE_ID`              | Your Umami dashboard → Websites → Add |
+| `YOUR_CF_BEACON_TOKEN`               | Cloudflare → Analytics → Web Analytics |
+| `YOUR_POSTHOG_KEY`                   | PostHog → Settings → Project API key  |
+| `RESEND_API_KEY` (+ FROM/TO)          | Resend dashboard → deploy injects `api/secrets.php` |
+| `jorge-salgado-miranda-lt3qxa/30min` | Your Cal.com event-type slug (replace with your own) |
 
-The contact form refuses to submit while placeholders remain, so you
-will see a clear error until configured. Details in
-[`docs/MANUAL_SETUP.md`](docs/MANUAL_SETUP.md) (gitignored, template
-copy in the fork).
+Analytics loaders skip any provider whose token still holds a `YOUR_`
+placeholder (`assets/js/consent.js` `isTokenConfigured`), so
+unconfigured providers stay silent until deploy injects real tokens.
+The contact form itself always submits to `/api/contact.php`. Details
+in [`docs/MANUAL_SETUP.md`](docs/MANUAL_SETUP.md).
 
 ---
 
