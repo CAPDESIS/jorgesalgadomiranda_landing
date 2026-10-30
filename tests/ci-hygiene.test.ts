@@ -94,6 +94,36 @@ describe('contact proxy and analytics contract', () => {
     const src = read('.github/workflows/deploy.yml');
     expect(src).toContain('**/audits/**');
   });
+
+  // The FTP action matches each path with multimatch {dot: true, matchBase: true}:
+  // patterns apply in order and a "!" pattern removes what earlier ones matched.
+  // /.pre-commit-config.yaml shipped and was served with HTTP 200 because no
+  // pattern covered dotfiles in general.
+  test('deploy exclude list drops every dotfile except .htaccess and .well-known', () => {
+    const src = read('.github/workflows/deploy.yml');
+    const block = src.split('exclude: |\n')[1]?.split('\n\n')[0] ?? '';
+    const patterns = block.split('\n').map((line) => line.trim()).filter(Boolean);
+    expect(patterns.length).toBeGreaterThan(10);
+    // Every line of a block scalar is a pattern; a "#" line would not be a comment.
+    expect(patterns.filter((p) => p.startsWith('#'))).toEqual([]);
+    const dotFiles = patterns.indexOf('**/.*');
+    const dotDirs = patterns.indexOf('**/.*/**');
+    const keepHtaccess = patterns.indexOf('!**/.htaccess');
+    const keepWellKnown = patterns.indexOf('!**/.well-known/**');
+    expect(dotFiles).toBeGreaterThanOrEqual(0);
+    expect(dotDirs).toBeGreaterThanOrEqual(0);
+    // The exceptions only work when they come after the patterns they undo.
+    expect(keepHtaccess).toBeGreaterThan(Math.max(dotFiles, dotDirs));
+    expect(keepWellKnown).toBeGreaterThan(Math.max(dotFiles, dotDirs));
+  });
+
+  test('Apache denies every dotfile, including the FTP sync state', () => {
+    // .ftp-deploy-sync-state.json is written by the deploy action itself, so the
+    // exclude list cannot keep it off the server; it lists every deployed file
+    // with its hash and was served with HTTP 200.
+    const htaccess = read('.htaccess');
+    expect(htaccess).toMatch(/<FilesMatch "\^\\\.">\s*\n\s*Require all denied/);
+  });
 });
 
 describe('fleet runner policy for a public repository', () => {

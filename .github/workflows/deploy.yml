@@ -367,7 +367,15 @@ jobs:
           port: 21
           timeout: 60000
           log-level: standard
-          # Everything uploads EXCEPT these (dev-only, private, or repo metadata):
+          # Everything uploads EXCEPT these (dev-only, private, or repo metadata).
+          # The last four lines drop every other dotfile and dot-directory, which
+          # is repo tooling, never site content (/.pre-commit-config.yaml was
+          # served with HTTP 200). The action matches with multimatch
+          # {dot: true, matchBase: true}, where a later "!" pattern removes
+          # earlier matches, so the two "!" exceptions MUST stay after the
+          # dotfile patterns: .htaccess is the site's Apache config, and
+          # .well-known/ (ACME, security.txt) has to stay publishable. No "#"
+          # lines inside the block below: each line there is a pattern.
           exclude: |
             **/.git*
             **/.git*/**
@@ -399,6 +407,10 @@ jobs:
             **/verify-*.png
             **/*.log
             **/api/secrets.example.php
+            **/.*
+            **/.*/**
+            !**/.htaccess
+            !**/.well-known/**
 
       - name: Post-deploy smoke test
         env:

@@ -76,7 +76,12 @@
 </IfModule>
 
 # -------- Hide sensitive files --------
-<FilesMatch "^\.(git|env|htaccess|htpasswd)">
+# Any file whose name starts with a dot: .htaccess, .env*, .git*, repo tooling
+# such as .pre-commit-config.yaml, and the FTP deploy action's own
+# .ftp-deploy-sync-state.json (a full file list with hashes, which the action
+# reads over FTP, never over HTTP). Files inside .well-known/ do not start with
+# a dot, so ACME and security.txt stay reachable.
+<FilesMatch "^\.">
   Require all denied
 </FilesMatch>
 <FilesMatch "(\.(md|markdown)$|^(package\.json|bun\.lockb|package-lock\.json|og\.html)$)">

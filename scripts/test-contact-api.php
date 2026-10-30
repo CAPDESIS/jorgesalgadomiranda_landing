@@ -99,6 +99,89 @@ function jsm_test_handle_signal(int $signal): void
     exit(128 + $signal);
 }
 
+/**
+ * A loopback port the kernel reports as free right now (bind to port 0).
+ */
+function jsm_test_free_loopback_port(): int
+{
+    $socket = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+    if ($socket === false) {
+        throw new RuntimeException("cannot reserve a loopback port: {$errstr}");
+    }
+    $name = (string) stream_socket_get_name($socket, false);
+    fclose($socket);
+    $port = (int) substr($name, (int) strrpos($name, ':') + 1);
+    if ($port <= 0) {
+        throw new RuntimeException("cannot read the reserved loopback port from '{$name}'");
+    }
+    return $port;
+}
+
+/**
+ * Start `php -S` on a loopback port that THIS server is proven to own.
+ *
+ * The previous version picked random_int(21000, 45000) and called the server
+ * ready as soon as a TCP connect to that port succeeded. When the port was
+ * already taken, php -S exited with "Address already in use" while the connect
+ * reached the other listener, so the test posted to the wrong server and failed
+ * with a 404 from an unrelated mock (main run 40928363474, 2026-10-29).
+ *
+ * Now the kernel picks a free port, and the server only counts as ready when
+ * its own log says it started on that port, the process is still running, and
+ * the port accepts a connection. Losing the small race between reserving the
+ * port and php -S binding it is detected the same way and retried on a new
+ * port, at most $attempts times.
+ *
+ * @param list<string> $serverArgs arguments after `-S 127.0.0.1:<port>`
+ * @param array<string, string> $env
+ * @return array{process: resource, port: int, stdout: string, stderr: string}
+ */
+function jsm_test_start_php_server(array $serverArgs, string $cwd, array $env, int $attempts = 5): array
+{
+    $lastLog = '';
+    for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+        $port = jsm_test_free_loopback_port();
+        $stdout = (string) tempnam(sys_get_temp_dir(), 'jsm_srv_out_');
+        $stderr = (string) tempnam(sys_get_temp_dir(), 'jsm_srv_err_');
+        jsm_test_track_cleanup_file($stdout);
+        jsm_test_track_cleanup_file($stderr);
+        $process = proc_open(
+            array_merge([PHP_BINARY, '-S', '127.0.0.1:' . $port], $serverArgs),
+            [1 => ['file', $stdout, 'a'], 2 => ['file', $stderr, 'a']],
+            $pipes,
+            $cwd,
+            $env
+        );
+        if (!is_resource($process)) {
+            $lastLog = "attempt {$attempt}: proc_open failed";
+            continue;
+        }
+        jsm_test_track_process($process);
+        // php -S announces the address it actually bound, on stderr (stdout on
+        // older builds), e.g. "Development Server (http://127.0.0.1:PORT) started".
+        $startedHere = '#Development Server.*127\.0\.0\.1:' . $port . '\b#';
+        $log = '';
+        for ($i = 0; $i < 100; $i++) {
+            usleep(50000);
+            $log = (string) @file_get_contents($stderr) . (string) @file_get_contents($stdout);
+            $running = !empty(proc_get_status($process)['running']);
+            if (!$running) {
+                break;
+            }
+            if (preg_match($startedHere, $log) === 1) {
+                $fp = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.5);
+                if ($fp) {
+                    fclose($fp);
+                    return ['process' => $process, 'port' => $port, 'stdout' => $stdout, 'stderr' => $stderr];
+                }
+            }
+        }
+        $lastLog = "attempt {$attempt} on port {$port}: " . trim($log);
+        jsm_test_stop_process($process);
+    }
+    throw new RuntimeException("php -S did not start after {$attempts} attempts; last: {$lastLog}");
+}
+
 register_shutdown_function('jsm_test_cleanup');
 if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
     pcntl_async_signals(true);
@@ -172,7 +255,6 @@ check('html includes name', strpos($html, 'Ada') !== false);
 check('html escapes', strpos($html, '<script>') === false);
 
 // Mock Resend with a local PHP server
-$mockPort = random_int(21000, 45000);
 $mockDir = sys_get_temp_dir() . '/jsm_resend_mock_' . bin2hex(random_bytes(4));
 mkdir($mockDir, 0700, true);
 $mockRouter = $mockDir . '/router.php';
@@ -192,32 +274,15 @@ echo json_encode(['error' => 'not found']);
 return true;
 PHP);
 
-$stdout = tempnam(sys_get_temp_dir(), 'jsm_out_');
-$stderr = tempnam(sys_get_temp_dir(), 'jsm_err_');
-jsm_test_track_cleanup_file($stdout);
-jsm_test_track_cleanup_file($stderr);
-$proc = proc_open(
-    [PHP_BINARY, '-S', '127.0.0.1:' . $mockPort, $mockRouter],
-    [1 => ['file', $stdout, 'a'], 2 => ['file', $stderr, 'a']],
-    $pipes,
-    $mockDir,
-    ['PATH' => getenv('PATH') ?: '/usr/bin']
-);
-jsm_test_track_process($proc);
-
-$ready = false;
-for ($i = 0; $i < 50; $i++) {
-    usleep(40000);
-    $errno = 0;
-    $errstr = '';
-    $fp = @fsockopen('127.0.0.1', $mockPort, $errno, $errstr, 0.2);
-    if ($fp) {
-        fclose($fp);
-        $ready = true;
-        break;
-    }
+$mockPort = 0;
+$mockStartError = '';
+try {
+    $mockServer = jsm_test_start_php_server([$mockRouter], $mockDir, ['PATH' => getenv('PATH') ?: '/usr/bin']);
+    $mockPort = $mockServer['port'];
+} catch (RuntimeException $e) {
+    $mockStartError = $e->getMessage();
 }
-check('resend mock server started', is_resource($proc) && $ready, $errstr ?: 'no connect');
+check('resend mock server started', $mockPort > 0, $mockStartError);
 
 putenv('RESEND_API_BASE=http://127.0.0.1:' . $mockPort);
 $_ENV['RESEND_API_BASE'] = 'http://127.0.0.1:' . $mockPort;
@@ -233,9 +298,6 @@ $contactTmp = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'jsm-contact-test-' . b
 mkdir($contactTmp, 0700, true);
 register_shutdown_function('jsm_test_remove_tree', $contactTmp);
 $docroot = $root;
-$port = random_int(21000, 45000);
-$out = tempnam(sys_get_temp_dir(), 'jsm_contact_out_');
-$err = tempnam(sys_get_temp_dir(), 'jsm_contact_err_');
 $env = [
     'PATH' => getenv('PATH') ?: '/usr/bin',
     'TMPDIR' => $contactTmp,
@@ -245,7 +307,6 @@ $env = [
     'RESEND_API_BASE' => 'http://127.0.0.1:' . $mockPort, // dead — expect 502 without fallback
 ];
 // Start a fresh mock for the endpoint test
-$mockPort2 = random_int(21000, 45000);
 $mockDir2 = sys_get_temp_dir() . '/jsm_resend_mock2_' . bin2hex(random_bytes(4));
 mkdir($mockDir2, 0700, true);
 $mockRouter2 = $mockDir2 . '/router.php';
@@ -263,50 +324,21 @@ http_response_code(404);
 echo json_encode(['error' => 'not found']);
 return true;
 PHP);
-$mockOut = tempnam(sys_get_temp_dir(), 'm2o');
-$mockErr = tempnam(sys_get_temp_dir(), 'm2e');
-jsm_test_track_cleanup_file($mockOut);
-jsm_test_track_cleanup_file($mockErr);
-$mockProc = proc_open(
-    [PHP_BINARY, '-S', '127.0.0.1:' . $mockPort2, $mockRouter2],
-    [1 => ['file', $mockOut, 'a'], 2 => ['file', $mockErr, 'a']],
-    $pipes2,
-    $mockDir2,
-    ['PATH' => getenv('PATH') ?: '/usr/bin']
-);
-jsm_test_track_process($mockProc);
-$env['RESEND_API_BASE'] = 'http://127.0.0.1:' . $mockPort2;
-for ($i = 0; $i < 50; $i++) {
-    usleep(40000);
-    $fp = @fsockopen('127.0.0.1', $mockPort2, $errno, $errstr, 0.2);
-    if ($fp) {
-        fclose($fp);
-        break;
-    }
-}
-
-$server = proc_open(
-    [PHP_BINARY, '-S', '127.0.0.1:' . $port, '-t', $docroot],
-    [1 => ['file', $out, 'a'], 2 => ['file', $err, 'a']],
-    $pipes3,
-    $docroot,
-    $env
-);
-jsm_test_track_process($server);
-$serverReady = false;
-for ($i = 0; $i < 50; $i++) {
-    usleep(100000);
-    $fp = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
-    if ($fp) {
-        fclose($fp);
-        $serverReady = true;
-        break;
-    }
-}
-if (!$serverReady) {
-    fwrite(STDERR, "ERROR: contact test server did not become ready on 127.0.0.1:{$port} after 50 attempts (last error: {$errstr})\n");
+try {
+    $mockServer2 = jsm_test_start_php_server([$mockRouter2], $mockDir2, ['PATH' => getenv('PATH') ?: '/usr/bin']);
+} catch (RuntimeException $e) {
+    fwrite(STDERR, 'ERROR: endpoint Resend mock did not start: ' . $e->getMessage() . "\n");
     exit(1);
 }
+$env['RESEND_API_BASE'] = 'http://127.0.0.1:' . $mockServer2['port'];
+
+try {
+    $contactServer = jsm_test_start_php_server(['-t', $docroot], $docroot, $env);
+} catch (RuntimeException $e) {
+    fwrite(STDERR, 'ERROR: contact test server did not start: ' . $e->getMessage() . "\n");
+    exit(1);
+}
+$port = $contactServer['port'];
 
 $payload = http_build_query([
     'name' => 'Jorge Salgado',
@@ -377,32 +409,14 @@ check('api/lib/smtp-mail.php removed', !file_exists($root . '/api/lib/smtp-mail.
 function jsm_test_post_contact(string $root, string $tmp, array $env, string $payload): array
 {
     $env['TMPDIR'] = $tmp;
-    $port = random_int(21000, 45000);
-    $out = tempnam(sys_get_temp_dir(), 'jsm_c_out_');
-    $err = tempnam(sys_get_temp_dir(), 'jsm_c_err_');
-    jsm_test_track_cleanup_file($out);
-    jsm_test_track_cleanup_file($err);
-    $proc = proc_open(
-        [PHP_BINARY, '-S', '127.0.0.1:' . $port, '-t', $root],
-        [1 => ['file', $out, 'a'], 2 => ['file', $err, 'a']],
-        $pipes,
-        $root,
-        $env
-    );
-    jsm_test_track_process($proc);
-    $ready = false;
-    for ($i = 0; $i < 50 && !$ready; $i++) {
-        usleep(100000);
-        $fp = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
-        if ($fp) {
-            fclose($fp);
-            $ready = true;
-        }
+    try {
+        $server = jsm_test_start_php_server(['-t', $root], $root, $env);
+    } catch (RuntimeException $e) {
+        return ['ready' => false, 'status' => 0, 'body' => '', 'log' => $e->getMessage()];
     }
-    if (!$ready) {
-        jsm_test_stop_process($proc);
-        return ['ready' => false, 'status' => 0, 'body' => '', 'log' => ''];
-    }
+    $proc = $server['process'];
+    $port = $server['port'];
+    $err = $server['stderr'];
     $ch = curl_init('http://127.0.0.1:' . $port . '/api/contact.php');
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
