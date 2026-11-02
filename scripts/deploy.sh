@@ -73,14 +73,19 @@ trap cleanup EXIT
 
 git archive "$RELEASE_SHA" | tar -x -C "$DEPLOY_SOURCE_DIR"
 
-python3 - "$DEPLOY_SOURCE_DIR/index.html" "$RELEASE_SHA" <<'PY'
+# Stamp every local css and js reference in every page with ?v=<SHA[:7]>. The
+# same script the official workflow runs ("Cache-bust asset URLs" in
+# deploy.yml), taken from this checkout so releasing an older SHA still works.
+# The origin ignores the query and Cloudflare keeps the first copy it fetches,
+# so a reference that goes out bare keeps old bytes cached for 7 days.
+python3 "$ROOT/scripts/stamp-assets.py" --root "$DEPLOY_SOURCE_DIR" --sha "$RELEASE_SHA"
+
+python3 - "$DEPLOY_SOURCE_DIR/index.html" <<'PY'
 from pathlib import Path
 import os
 import sys
 
 path = Path(sys.argv[1])
-release_sha = sys.argv[2]
-short_sha = release_sha[:7]
 html = path.read_text(encoding="utf-8")
 
 replacements = {
@@ -92,13 +97,6 @@ replacements = {
 for placeholder, value in replacements.items():
     if value:
         html = html.replace(placeholder, value)
-
-html = html.replace('href="assets/styles.css"', f'href="assets/styles.css?v={short_sha}"')
-html = html.replace('src="assets/i18n.js"', f'src="assets/i18n.js?v={short_sha}"')
-
-if 'assets/styles.css?v=' not in html or 'assets/i18n.js?v=' not in html:
-    print("Asset cache-bust rewrite missed expected CSS/JS references.", file=sys.stderr)
-    sys.exit(1)
 
 path.write_text(html, encoding="utf-8")
 PY

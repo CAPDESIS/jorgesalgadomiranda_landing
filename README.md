@@ -166,6 +166,7 @@ jorgesalgadomiranda_landing/
 ├── fonts/                               Self-hosted woff2 (Instrument Serif, Geist, Geist Mono)
 ├── scripts/
 │   ├── deploy.sh                        Manual FTP deploy (lftp + .env)
+│   ├── stamp-assets.py                  Adds ?v=<SHA[:7]> to every local css/js reference (both deploy paths)
 │   └── build-cv-pdfs.sh                 Headless Chromium PDF builder
 ├── docs/
 │   ├── ARCHITECTURE.md                  Page structure, design tokens, JS modules

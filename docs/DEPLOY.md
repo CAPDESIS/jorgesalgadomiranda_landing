@@ -9,6 +9,15 @@ path:
 2. **Manual** from your laptop via `bun run deploy` only as an audited recovery
    fallback.
 
+Both paths stamp asset URLs through one script, `scripts/stamp-assets.py`:
+every local `.css`, `.js` and `.mjs` reference in every deployed page gets
+`?v=<release SHA[:7]>`, and the run fails if any is left bare. The origin
+ignores the query and Cloudflare keeps the first copy it fetches for the 7-day
+CSS and JS Expires, so a reference that ships without a token keeps old bytes
+cached. Nothing is listed by hand: a new page or script is covered when it is
+added. `tests/stamp-assets.test.ts` runs both paths against a throwaway release
+and fails on any bare reference.
+
 ## Production status
 
 Measured 2026-10-29: the live apex serves cache-busted assets stamped
@@ -155,8 +164,8 @@ bun run deploy
 ```
 
 The script at `scripts/deploy.sh` uses the same exclude list as the
-GitHub Actions workflow, so both deploy paths produce byte-identical
-remotes.
+GitHub Actions workflow and stamps asset URLs through the same
+`scripts/stamp-assets.py`, so both deploy paths produce the same remotes.
 
 ## What gets uploaded
 
