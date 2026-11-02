@@ -73,14 +73,19 @@ trap cleanup EXIT
 
 git archive "$RELEASE_SHA" | tar -x -C "$DEPLOY_SOURCE_DIR"
 
-python3 - "$DEPLOY_SOURCE_DIR/index.html" "$RELEASE_SHA" <<'PY'
+# Stamp every local css and js reference in every page with ?v=<SHA[:7]>. The
+# same script the official workflow runs ("Cache-bust asset URLs" in
+# deploy.yml), taken from this checkout so releasing an older SHA still works.
+# The origin ignores the query and Cloudflare keeps the first copy it fetches,
+# so a reference that goes out bare keeps old bytes cached for 7 days.
+python3 "$ROOT/scripts/stamp-assets.py" --root "$DEPLOY_SOURCE_DIR" --sha "$RELEASE_SHA"
+
+python3 - "$DEPLOY_SOURCE_DIR/index.html" <<'PY'
 from pathlib import Path
 import os
 import sys
 
 path = Path(sys.argv[1])
-release_sha = sys.argv[2]
-short_sha = release_sha[:7]
 html = path.read_text(encoding="utf-8")
 
 replacements = {
@@ -93,21 +98,30 @@ for placeholder, value in replacements.items():
     if value:
         html = html.replace(placeholder, value)
 
-html = html.replace('href="assets/styles.css"', f'href="assets/styles.css?v={short_sha}"')
-html = html.replace('src="assets/i18n.js"', f'src="assets/i18n.js?v={short_sha}"')
-
-if 'assets/styles.css?v=' not in html or 'assets/i18n.js?v=' not in html:
-    print("Asset cache-bust rewrite missed expected CSS/JS references.", file=sys.stderr)
-    sys.exit(1)
-
 path.write_text(html, encoding="utf-8")
 PY
 
 python3 "$DEPLOY_SOURCE_DIR/scripts/write-version-json.py" --sha "$RELEASE_SHA" --out "$DEPLOY_SOURCE_DIR/version.json"
 test -s "$DEPLOY_SOURCE_DIR/version.json"
 
+# Leave out exactly what the official upload leaves out. The `exclude:` block of
+# .github/workflows/deploy.yml is the one list; lftp reads globs differently from
+# the FTP action, so rather than keep a second list in lftp's dialect this prunes
+# the staged tree with the action's own rules and mirrors what is left. Done last,
+# after version.json is written and after anything here needed scripts/, so the
+# generated files are judged by the same list. The workflow is taken from this
+# checkout, so releasing an older SHA is held to the current rules. Fails closed:
+# no readable list, no upload.
+python3 "$ROOT/scripts/prune-excluded.py" --workflow "$ROOT/.github/workflows/deploy.yml" --root "$DEPLOY_SOURCE_DIR"
+
 echo "Uploading $RELEASE_SHA to $FTP_HOST:$FTP_REMOTE_DIR"
 
+# The one lftp exclude, and not an upload list (that is the pruned tree above):
+# api/secrets.php is generated on the server by the official workflow from the
+# RESEND_* repository secrets (scripts/write-contact-secrets.py) and is gitignored,
+# so no release contains it. Without this, --delete would remove it as a remote
+# file with no local counterpart and contact delivery would stay broken until the
+# next official deploy. An excluded path is neither deleted nor overwritten.
 LFTP_PASSWORD="$FTP_PASS" lftp --env-password -u "$FTP_USER" "$FTP_HOST" <<EOF
 set ssl:verify-certificate yes
 set ftp:ssl-force true
@@ -116,33 +130,7 @@ mirror --reverse \
   --delete \
   --verbose \
   --parallel=4 \
-  --exclude-glob .git \
-  --exclude-glob .git/ \
-  --exclude-glob .github/ \
-  --exclude-glob .env \
-  --exclude-glob .env.example \
-  --exclude-glob .env.local \
-  --exclude-glob .gitignore \
-  --exclude-glob .gitleaks.toml \
-  --exclude-glob .pre-commit-config.yaml \
-  --exclude-glob .remember/ \
-  --exclude-glob .playwright-mcp/ \
-  --exclude-glob .idea/ \
-  --exclude-glob .vscode/ \
-  --exclude-glob node_modules/ \
-  --exclude-glob scripts/ \
-  --exclude-glob docs/ \
-  --exclude-glob package.json \
-  --exclude-glob package-lock.json \
-  --exclude-glob bun.lockb \
-  --exclude-glob README.md \
-  --exclude-glob CLAUDE.md \
-  --exclude-glob HANDOFF.md \
-  --exclude-glob MASTER_SPEC.md \
-  --exclude-glob og.html \
-  --exclude-glob verify-*.png \
-  --exclude-glob *.log \
-  --exclude-glob .DS_Store \
+  --exclude-glob api/secrets.php \
   ./ "$FTP_REMOTE_DIR"
 bye
 EOF

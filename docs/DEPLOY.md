@@ -9,6 +9,15 @@ path:
 2. **Manual** from your laptop via `bun run deploy` only as an audited recovery
    fallback.
 
+Both paths stamp asset URLs through one script, `scripts/stamp-assets.py`:
+every local `.css`, `.js` and `.mjs` reference in every deployed page gets
+`?v=<release SHA[:7]>`, and the run fails if any is left bare. The origin
+ignores the query and Cloudflare keeps the first copy it fetches for the 7-day
+CSS and JS Expires, so a reference that ships without a token keeps old bytes
+cached. Nothing is listed by hand: a new page or script is covered when it is
+added. `tests/stamp-assets.test.ts` runs both paths against a throwaway release
+and fails on any bare reference.
+
 ## Production status
 
 Measured 2026-10-29: the live apex serves cache-busted assets stamped
@@ -154,9 +163,27 @@ cp .env.example .env
 bun run deploy
 ```
 
-The script at `scripts/deploy.sh` uses the same exclude list as the
-GitHub Actions workflow, so both deploy paths produce byte-identical
-remotes.
+The script at `scripts/deploy.sh` publishes the same files as the GitHub
+Actions workflow and stamps asset URLs through the same
+`scripts/stamp-assets.py`. There is one exclude list: the `exclude:` block of
+`.github/workflows/deploy.yml`. lftp reads globs differently from the FTP
+action, so instead of keeping a second list `deploy.sh` runs
+`scripts/prune-excluded.py`, which reads that block, applies it to the staged
+tree with the action's own matching rules (multimatch, `dot: true`, a later `!`
+pattern puts back what an earlier one dropped, a directory that is dropped takes
+its children) and deletes what the action would not upload. lftp then mirrors
+what is left. Its only exclude is `api/secrets.php`, which is not an upload
+rule: the official workflow generates that file on the server from the
+`RESEND_*` secrets and no release contains it, so without the exclude
+`mirror --delete` would remove it and contact delivery would stay broken until
+the next official deploy. An excluded path is neither deleted nor overwritten.
+The pruner fails closed: no readable block, a truncated list, or glob syntax the
+script does not reproduce stops the deploy before `lftp` runs. To keep something
+off the server, add it to that block once; both paths follow.
+`tests/deploy-excludes.test.ts` runs `deploy.sh` through a fake `lftp` on the
+real files and fails if anything the workflow excludes (`tests/`, `audits/`,
+`bunfig.toml`, dotfiles) is uploaded, or if `--delete` removes or overwrites a
+server-side `api/secrets.php`.
 
 ## What gets uploaded
 

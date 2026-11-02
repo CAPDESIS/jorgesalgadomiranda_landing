@@ -251,27 +251,23 @@ jobs:
         env:
           SHA: ${{ steps.release.outputs.release_sha }}
         run: |
-          set -e
-          # Append the commit SHA as a version query to the stylesheet and
-          # extracted-i18n script so Cloudflare, Hostinger, and browsers all
-          # see a new URL on every deploy. Without this the 7-day text/css
-          # Expires header can pin an old stylesheet at the CF edge while the
-          # HTML has already changed, producing unstyled markup on the live
-          # site. The edit is applied to the working tree only, never
-          # committed back to the repo.
-          V="${SHA:0:7}"
-          sed -i -E "s#href=\"assets/styles\.css\"#href=\"assets/styles.css?v=${V}\"#g" index.html
-          sed -i -E "s#href=\"/assets/styles\.css\"#href=\"/assets/styles.css?v=${V}\"#g" 404.html legal/privacy.html legal/terms.html
-          sed -i -E "s#src=\"assets/i18n\.js\"#src=\"assets/i18n.js?v=${V}\"#g" index.html
-          # Extracted JS modules under assets/js/ (email validation, consent,
-          # cookie banner, i18n helpers, welcome modal) need the same
-          # cache-busting as styles.css/i18n.js above.
-          for f in consent i18n-utils welcome-modal email-validation cookie-banner; do
-            sed -i -E "s#src=\"assets/js/${f}\.js\"#src=\"assets/js/${f}.js?v=${V}\"#g" index.html
-          done
-          echo "Asset version: ${V}"
-          grep -E "assets/(styles\.css|i18n\.js)" index.html || (echo "::error::cache-bust rewrite missed expected references" && exit 1)
-          grep -cE "assets/js/[a-z0-9-]+\.js\?v=${V}" index.html | grep -q '^5$' || (echo "::error::cache-bust rewrite missed one of the assets/js/*.js references" && exit 1)
+          set -euo pipefail
+          # Append the release SHA[:7] as ?v= to EVERY local css and js
+          # reference in every deployed page, so Cloudflare, Hostinger and
+          # browsers all see a new URL on every deploy. The origin ignores the
+          # query and the edge keeps the first copy it fetches for the 7-day
+          # text/css and application/javascript Expires, so a reference that
+          # goes out without a token keeps old bytes cached while the HTML
+          # already changed. The files used to be listed here by hand, which
+          # left legal/cookies.html bare; scripts/deploy.sh (the recovery path)
+          # stamped only two files. Both now run the same script, which
+          # discovers the references itself and fails if any is left bare.
+          # Taken from origin/main, not from the release tree, so a rollback to
+          # a release that predates the script is still stamped. The edit is
+          # applied to the working tree only, never committed back to the repo.
+          git show refs/remotes/origin/main:scripts/stamp-assets.py > "$RUNNER_TEMP/stamp-assets.py"
+          test -s "$RUNNER_TEMP/stamp-assets.py" || { echo "::error::scripts/stamp-assets.py is missing on origin/main."; exit 1; }
+          python3 -I "$RUNNER_TEMP/stamp-assets.py" --root . --sha "$SHA"
 
       - name: Write version.json parity marker
         env:
