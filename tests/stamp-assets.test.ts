@@ -1,16 +1,18 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import {
-  chmodSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import {
+  cleanupScratch,
+  extractRun,
+  GIT_ENV,
+  makeRelease,
+  mustDeploy,
+  read,
+  ROOT,
+  scratch,
+  shippedPages,
+  writeTree,
+} from './support/release';
 
 // The site sits behind Cloudflare and the Hostinger origin ignores the query,
 // so the first copy fetched for a ?v= URL stays cached for its TTL
@@ -19,38 +21,13 @@ import { dirname, join } from 'node:path';
 // workflow and the scripts/deploy.sh recovery path) must stamp every local css
 // and js reference in every page through the one shared script.
 
-const ROOT = join(import.meta.dir, '..');
 const STAMP = join(ROOT, 'scripts', 'stamp-assets.py');
 const SHA = '0123456789abcdef0123456789abcdef01234567';
 const TOKEN = SHA.slice(0, 7);
 const OTHER_SHA = 'fedcba9876543210fedcba9876543210fedcba98';
 const OTHER_TOKEN = OTHER_SHA.slice(0, 7);
 
-let scratchDirs: string[] = [];
-afterEach(() => {
-  for (const dir of scratchDirs) {
-    rmSync(dir, { recursive: true, force: true });
-  }
-  scratchDirs = [];
-});
-
-function scratch(label: string): string {
-  const dir = mkdtempSync(join(tmpdir(), `jsm-stamp-${label}-`));
-  scratchDirs.push(dir);
-  return dir;
-}
-
-function writeTree(root: string, files: Record<string, string>): void {
-  for (const [rel, body] of Object.entries(files)) {
-    const path = join(root, rel);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, body);
-  }
-}
-
-function read(root: string, rel: string): string {
-  return readFileSync(join(root, rel), 'utf8');
-}
+afterEach(cleanupScratch);
 
 function stamp(root: string, sha: string = SHA): { code: number | null; out: string; err: string } {
   const proc = Bun.spawnSync(['python3', STAMP, '--root', root, '--sha', sha], {
@@ -312,22 +289,6 @@ describe('stamp-assets.py on a fixture tree', () => {
   });
 });
 
-// The pages the site really ships, listed by git so a new page is covered
-// without anyone editing this file. Not-deployed directories are left out the
-// same way the upload excludes them.
-const NOT_DEPLOYED = new Set(['docs', 'tests', 'scripts', 'audits', 'node_modules', 'coverage']);
-
-function shippedPages(): string[] {
-  const proc = Bun.spawnSync(['git', '-C', ROOT, 'ls-files', '*.html'], { stdout: 'pipe', stderr: 'pipe' });
-  const pages = proc.stdout
-    .toString()
-    .split('\n')
-    .filter(Boolean)
-    .filter((rel) => !NOT_DEPLOYED.has(rel.split('/')[0]));
-  expect(pages).toContain('index.html');
-  return pages;
-}
-
 function copyPages(to: string): string[] {
   const pages = shippedPages();
   for (const rel of pages) {
@@ -378,108 +339,22 @@ describe('stamp-assets.py on the pages this repo ships', () => {
   });
 });
 
-// Both deploy paths, run for real against a throwaway git release. This is what
-// proves they share the stamping: the recovery path used to stamp only the index
-// stylesheet and i18n.js, and the workflow listed its files by hand and missed
-// legal/cookies.html.
-const GIT_ENV = {
-  PATH: process.env.PATH ?? '',
-  HOME: process.env.HOME ?? '',
-  TMPDIR: process.env.TMPDIR ?? tmpdir(),
-  GIT_CONFIG_GLOBAL: '/dev/null',
-  GIT_CONFIG_SYSTEM: '/dev/null',
-  GIT_TERMINAL_PROMPT: '0',
-};
-
-function git(cwd: string, args: string[]): string {
-  const proc = Bun.spawnSync(['git', ...args], { cwd, env: GIT_ENV, stdout: 'pipe', stderr: 'pipe' });
-  if (proc.exitCode !== 0) {
-    throw new Error(`git ${args.join(' ')} failed: ${proc.stderr.toString()}`);
-  }
-  return proc.stdout.toString().trim();
-}
-
-function makeRelease(): { work: string; sha: string; pages: string[] } {
-  const base = scratch('release');
-  const origin = join(base, 'origin.git');
-  const work = join(base, 'work');
-  git(base, ['init', '-q', '--bare', '-b', 'main', origin]);
-  mkdirSync(work);
-  const pages = copyPages(work);
-  // Copied only when present, so the same test can run against a tree that
-  // does not have the shared script yet and fail on the real behaviour.
-  for (const rel of ['scripts/deploy.sh', 'scripts/write-version-json.py', 'scripts/stamp-assets.py']) {
-    if (existsSync(join(ROOT, rel))) {
-      mkdirSync(dirname(join(work, rel)), { recursive: true });
-      cpSync(join(ROOT, rel), join(work, rel));
-    }
-  }
-  git(work, ['init', '-q', '-b', 'main']);
-  git(work, ['add', '-A']);
-  git(work, ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '-m', 'release fixture']);
-  git(work, ['remote', 'add', 'origin', origin]);
-  git(work, ['push', '-q', 'origin', 'main']);
-  return { work, sha: git(work, ['rev-parse', 'HEAD']), pages };
-}
-
-// Stands in for lftp: records the tree deploy.sh would mirror to the server.
-const FAKE_LFTP = [
-  '#!/usr/bin/env bash',
-  'set -euo pipefail',
-  'script="$(cat)"',
-  `dir="$(printf '%s\\n' "$script" | sed -n 's/^lcd "\\(.*\\)"$/\\1/p' | head -n 1)"`,
-  'test -n "$dir" && test -d "$dir"',
-  'cp -R "$dir/." "$CAPTURE_DIR/"',
-  '',
-].join('\n');
-
-function extractRun(workflowRel: string, stepName: string): string {
-  const lines = read(ROOT, workflowRel).split('\n');
-  const start = lines.findIndex((line) => line.trim() === `- name: ${stepName}`);
-  expect(start).toBeGreaterThan(-1);
-  const runAt = lines.findIndex((line, i) => i > start && line.trim() === 'run: |');
-  expect(runAt).toBeGreaterThan(start);
-  const indent = lines[runAt].length - lines[runAt].trimStart().length + 2;
-  const body: string[] = [];
-  for (let i = runAt + 1; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (line.trim() === '') {
-      body.push('');
-      continue;
-    }
-    if (line.length - line.trimStart().length < indent) break;
-    body.push(line.slice(indent));
-  }
-  return body.join('\n');
-}
-
+// Both deploy paths, run for real against a throwaway git release (see
+// tests/support/release.ts). This is what proves they share the stamping: the
+// recovery path used to stamp only the index stylesheet and i18n.js, and the
+// workflow listed its files by hand and missed legal/cookies.html.
 describe('both deploy paths stamp through the shared script', () => {
   test('scripts/deploy.sh uploads a tree where every local css and js reference carries the token', () => {
-    const { work, sha, pages } = makeRelease();
-    const bin = scratch('bin');
-    writeFileSync(join(bin, 'lftp'), FAKE_LFTP);
-    chmodSync(join(bin, 'lftp'), 0o755);
-    const captured = scratch('captured');
-    const proc = Bun.spawnSync(['bash', join(work, 'scripts', 'deploy.sh')], {
-      cwd: work,
-      env: {
-        ...GIT_ENV,
-        PATH: `${bin}:${GIT_ENV.PATH}`,
-        RELEASE_SHA: sha,
-        FTP_HOST: 'ftp.invalid',
-        FTP_USER: 'fixture',
-        FTP_PASS: 'fixture',
-        FTP_REMOTE_DIR: './',
-        CAPTURE_DIR: captured,
-      },
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    if (proc.exitCode !== 0) {
-      throw new Error(`deploy.sh exited ${proc.exitCode}: ${proc.stderr.toString()}`);
-    }
+    const release = makeRelease();
+    const { captured } = mustDeploy(release);
     expect(existsSync(join(captured, 'version.json'))).toBe(true);
-    expect(unstamped(captured, pages, sha.slice(0, 7))).toEqual([]);
+    // og.html is not uploaded (the exclude list drops it), so only judge the
+    // pages that really go out, and insist the ones that matter are among them.
+    const uploaded = release.pages.filter((page) => existsSync(join(captured, page)));
+    for (const page of ['index.html', '404.html', 'legal/privacy.html', 'legal/terms.html', 'legal/cookies.html']) {
+      expect(uploaded).toContain(page);
+    }
+    expect(unstamped(captured, uploaded, release.sha.slice(0, 7))).toEqual([]);
   });
 
   function runWorkflowStep(work: string, sha: string): void {

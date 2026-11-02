@@ -163,9 +163,21 @@ cp .env.example .env
 bun run deploy
 ```
 
-The script at `scripts/deploy.sh` uses the same exclude list as the
-GitHub Actions workflow and stamps asset URLs through the same
-`scripts/stamp-assets.py`, so both deploy paths produce the same remotes.
+The script at `scripts/deploy.sh` publishes the same files as the GitHub
+Actions workflow and stamps asset URLs through the same
+`scripts/stamp-assets.py`. There is one exclude list: the `exclude:` block of
+`.github/workflows/deploy.yml`. lftp reads globs differently from the FTP
+action, so instead of keeping a second list `deploy.sh` runs
+`scripts/prune-excluded.py`, which reads that block, applies it to the staged
+tree with the action's own matching rules (multimatch, `dot: true`, a later `!`
+pattern puts back what an earlier one dropped, a directory that is dropped takes
+its children) and deletes what the action would not upload. lftp then mirrors
+what is left and is given no exclude list of its own. It fails closed: no
+readable block, a truncated list, or glob syntax the script does not reproduce
+stops the deploy before `lftp` runs. To keep something off the server, add it to
+that block once; both paths follow. `tests/deploy-excludes.test.ts` runs
+`deploy.sh` through a fake `lftp` on the real files and fails if anything the
+workflow excludes (`tests/`, `audits/`, `bunfig.toml`, dotfiles) is uploaded.
 
 ## What gets uploaded
 

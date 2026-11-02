@@ -104,6 +104,16 @@ PY
 python3 "$DEPLOY_SOURCE_DIR/scripts/write-version-json.py" --sha "$RELEASE_SHA" --out "$DEPLOY_SOURCE_DIR/version.json"
 test -s "$DEPLOY_SOURCE_DIR/version.json"
 
+# Leave out exactly what the official upload leaves out. The `exclude:` block of
+# .github/workflows/deploy.yml is the one list; lftp reads globs differently from
+# the FTP action, so rather than keep a second list in lftp's dialect this prunes
+# the staged tree with the action's own rules and mirrors what is left. Done last,
+# after version.json is written and after anything here needed scripts/, so the
+# generated files are judged by the same list. The workflow is taken from this
+# checkout, so releasing an older SHA is held to the current rules. Fails closed:
+# no readable list, no upload.
+python3 "$ROOT/scripts/prune-excluded.py" --workflow "$ROOT/.github/workflows/deploy.yml" --root "$DEPLOY_SOURCE_DIR"
+
 echo "Uploading $RELEASE_SHA to $FTP_HOST:$FTP_REMOTE_DIR"
 
 LFTP_PASSWORD="$FTP_PASS" lftp --env-password -u "$FTP_USER" "$FTP_HOST" <<EOF
@@ -114,33 +124,6 @@ mirror --reverse \
   --delete \
   --verbose \
   --parallel=4 \
-  --exclude-glob .git \
-  --exclude-glob .git/ \
-  --exclude-glob .github/ \
-  --exclude-glob .env \
-  --exclude-glob .env.example \
-  --exclude-glob .env.local \
-  --exclude-glob .gitignore \
-  --exclude-glob .gitleaks.toml \
-  --exclude-glob .pre-commit-config.yaml \
-  --exclude-glob .remember/ \
-  --exclude-glob .playwright-mcp/ \
-  --exclude-glob .idea/ \
-  --exclude-glob .vscode/ \
-  --exclude-glob node_modules/ \
-  --exclude-glob scripts/ \
-  --exclude-glob docs/ \
-  --exclude-glob package.json \
-  --exclude-glob package-lock.json \
-  --exclude-glob bun.lockb \
-  --exclude-glob README.md \
-  --exclude-glob CLAUDE.md \
-  --exclude-glob HANDOFF.md \
-  --exclude-glob MASTER_SPEC.md \
-  --exclude-glob og.html \
-  --exclude-glob verify-*.png \
-  --exclude-glob *.log \
-  --exclude-glob .DS_Store \
   ./ "$FTP_REMOTE_DIR"
 bye
 EOF
