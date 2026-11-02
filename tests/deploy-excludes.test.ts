@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { compileRules, survivors, workflowExcludePatterns } from './support/excludes';
@@ -20,8 +20,16 @@ import {
 // its own hand-written lftp list and let tests/, audits/, bunfig.toml and
 // bun.lock through. The block in deploy.yml is now the single list: deploy.sh
 // reads it through scripts/prune-excluded.py and uploads only what is left.
+// lftp keeps exactly one exclude of its own, for a file that is not part of any
+// release: api/secrets.php, which the official workflow generates on the server
+// and which `mirror --delete` would otherwise remove.
 
 afterEach(cleanupScratch);
+
+// Several tests here build a throwaway git release and run the real deploy.sh or
+// workflow step, which takes a second or two and several times that on a busy
+// machine. The 5 s default turned one slow second into a failure, not a finding.
+setDefaultTimeout(60_000);
 
 const PRUNE = join(ROOT, 'scripts', 'prune-excluded.py');
 const WORKFLOW = join(ROOT, '.github', 'workflows', 'deploy.yml');
@@ -363,11 +371,12 @@ describe('scripts/deploy.sh uploads exactly what deploy.yml uploads', () => {
     }
   });
 
-  test('lftp is given no exclude list of its own, so there is only one list', () => {
+  test('lftp keeps no upload list of its own: its one exclude is the server-side secrets file', () => {
     const run = mustDeploy(makeRelease());
     expect(run.lftpScript).not.toBeNull();
-    expect((run.lftpScript ?? '').includes('--exclude-glob')).toBe(false);
-    expect((run.lftpScript ?? '').includes('mirror --reverse')).toBe(true);
+    const script = run.lftpScript ?? '';
+    expect(script.includes('mirror --reverse')).toBe(true);
+    expect([...script.matchAll(/--exclude-glob\s+(\S+)/g)].map((match) => match[1])).toEqual(['api/secrets.php']);
   });
 
   test('a workflow without an exclude block stops the upload before lftp is called', () => {
@@ -381,11 +390,13 @@ describe('scripts/deploy.sh uploads exactly what deploy.yml uploads', () => {
     expect(existsSync(join(run.captured, 'index.html'))).toBe(false);
   });
 
-  test('deploy.sh keeps no list of its own', () => {
+  test('deploy.sh keeps no upload list of its own', () => {
     // Booleans, not toContain: a failed toContain would print the whole script.
     const deploySh = read(ROOT, 'scripts/deploy.sh');
     expect(deploySh.includes('prune-excluded.py')).toBe(true);
-    expect(deploySh.includes('--exclude-glob')).toBe(false);
+    // The one lftp exclude is the delete protection below, not an upload list.
+    expect(deploySh.split('--exclude-glob').length - 1).toBe(1);
+    expect(deploySh.includes('--exclude-glob api/secrets.php')).toBe(true);
   });
 
   test('the list the script reads is the one the official upload action is given', () => {
@@ -398,5 +409,67 @@ describe('scripts/deploy.sh uploads exactly what deploy.yml uploads', () => {
     expect(lines.slice(uses, block).some((line) => line.trim().startsWith('- name:'))).toBe(false);
     expect(workflowExcludePatterns().length).toBeGreaterThanOrEqual(10);
     expect(relative(ROOT, WORKFLOW)).toBe('.github/workflows/deploy.yml');
+  });
+});
+
+describe('the recovery mirror leaves the server-side api/secrets.php alone', () => {
+  // The official workflow generates api/secrets.php (Resend delivery) on the
+  // server from repository secrets. It is gitignored, so no release has it and
+  // `mirror --reverse --delete` would remove it, breaking contact delivery until
+  // the next official deploy.
+  const SECRETS = "<?php return ['RESEND_API_KEY' => 'value-only-the-server-has'];\n";
+  const SERVER: Record<string, string> = {
+    'api/secrets.php': SECRETS,
+    'api/contact.php': 'previous contact.php',
+    'stale.html': 'a page no release has any more',
+    'tests/leftover.ts': 'uploaded by an old deploy',
+  };
+
+  test('--delete keeps it, while the mirror still replaces and removes everything else', () => {
+    const release = makeRelease();
+    const run = mustDeploy(release, SERVER);
+    // The server really was mirrored and cleaned, so a surviving secrets file is
+    // not just a mirror that did nothing.
+    expect(read(run.remote, 'api/contact.php')).toBe(read(release.work, 'api/contact.php'));
+    expect(existsSync(join(run.remote, 'index.html'))).toBe(true);
+    expect(existsSync(join(run.remote, 'stale.html'))).toBe(false);
+    expect(existsSync(join(run.remote, 'tests/leftover.ts'))).toBe(false);
+    // And the secrets file is exactly as the server had it.
+    expect(existsSync(join(run.remote, 'api/secrets.php'))).toBe(true);
+    expect(read(run.remote, 'api/secrets.php')).toBe(SECRETS);
+  });
+
+  test('a copy of it inside the release is not uploaded over the server one', () => {
+    const release = makeRelease({ 'api/secrets.php': "<?php return ['RESEND_API_KEY' => 'FROM-THE-RELEASE'];\n" });
+    const run = mustDeploy(release, SERVER);
+    expect(existsSync(join(run.captured, 'api/secrets.php'))).toBe(false);
+    expect(read(run.remote, 'api/secrets.php')).toBe(SECRETS);
+  });
+
+  test('control: with the exclude removed the same run deletes it', () => {
+    // Proves the checks above can fail: take the exclude out of the checkout's
+    // deploy.sh and the modelled --delete removes the server's secrets file.
+    const release = makeRelease();
+    const script = join(release.work, 'scripts', 'deploy.sh');
+    const original = read(release.work, 'scripts/deploy.sh');
+    const withoutExclude = original.replace(/^[ \t]*--exclude-glob api\/secrets\.php[ \t]*\\\n/m, '');
+    expect(withoutExclude).not.toBe(original);
+    writeFileSync(script, withoutExclude);
+    const run = mustDeploy(release, SERVER);
+    expect(existsSync(join(run.remote, 'stale.html'))).toBe(false);
+    expect(existsSync(join(run.remote, 'api/secrets.php'))).toBe(false);
+  });
+
+  test('the protected path is the file the workflow generates, and the only one', () => {
+    const generator = read(ROOT, 'scripts/write-contact-secrets.py');
+    expect(generator.includes('pathlib.Path("api/secrets.php")')).toBe(true);
+    const deploySh = read(ROOT, 'scripts/deploy.sh');
+    const excludes = [...deploySh.matchAll(/--exclude-glob\s+(\S+)/g)].map((match) => match[1]);
+    expect(excludes).toEqual(['api/secrets.php']);
+    // The workflow writes it into the tree it uploads, so the workflow's own
+    // exclude list must not name it (the example file is a different path).
+    expect(workflowExcludePatterns().some((pattern) => pattern.includes('secrets.php') && !pattern.includes('example'))).toBe(
+      false,
+    );
   });
 });

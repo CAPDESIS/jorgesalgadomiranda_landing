@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
@@ -28,6 +28,11 @@ const OTHER_SHA = 'fedcba9876543210fedcba9876543210fedcba98';
 const OTHER_TOKEN = OTHER_SHA.slice(0, 7);
 
 afterEach(cleanupScratch);
+
+// Several tests here build a throwaway git release and run the real deploy.sh or
+// workflow step, which takes a second or two and several times that on a busy
+// machine. The 5 s default turned one slow second into a failure, not a finding.
+setDefaultTimeout(60_000);
 
 function stamp(root: string, sha: string = SHA): { code: number | null; out: string; err: string } {
   const proc = Bun.spawnSync(['python3', STAMP, '--root', root, '--sha', sha], {

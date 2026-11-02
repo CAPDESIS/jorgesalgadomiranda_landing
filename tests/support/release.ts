@@ -114,6 +114,14 @@ export function makeRelease(extra: Record<string, string> = {}): Release {
 // mirror root and against the file name; a trailing slash means directories
 // only), so a verdict of "still uploaded" cannot come from reading them too
 // narrowly.
+//
+// When REMOTE_DIR is set it also plays the server. `mirror --reverse` copies
+// every non-excluded local file over the remote one, and `--delete` removes
+// every non-excluded remote file that has no local counterpart, then the
+// directories that emptied. Excluded paths are neither transferred nor deleted,
+// on either side: that is how lftp documents --exclude with --delete, and it is
+// the model the secrets test relies on. It has not been run against a real lftp
+// (none is installed here and no server is contacted).
 const FAKE_LFTP = `#!/usr/bin/env python3
 import fnmatch
 import os
@@ -152,6 +160,9 @@ def excluded(rel, is_dir):
     return False
 
 capture = os.environ["CAPTURE_DIR"]
+remote = os.environ.get("REMOTE_DIR")
+delete = "--delete" in script
+transferred = set()
 for dirpath, dirnames, filenames in os.walk(source):
     rel_dir = os.path.relpath(dirpath, source)
     rel_dir = "" if rel_dir == "." else rel_dir
@@ -160,9 +171,27 @@ for dirpath, dirnames, filenames in os.walk(source):
         rel = os.path.join(rel_dir, name)
         if excluded(rel, False):
             continue
-        target = os.path.join(capture, rel)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copy2(os.path.join(source, rel), target)
+        transferred.add(rel)
+        for destination in (capture, remote):
+            if not destination:
+                continue
+            target = os.path.join(destination, rel)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copy2(os.path.join(source, rel), target)
+
+if remote and delete:
+    for dirpath, dirnames, filenames in os.walk(remote, topdown=True):
+        rel_dir = os.path.relpath(dirpath, remote)
+        rel_dir = "" if rel_dir == "." else rel_dir
+        dirnames[:] = [d for d in dirnames if not excluded(os.path.join(rel_dir, d), True)]
+        for name in filenames:
+            rel = os.path.join(rel_dir, name)
+            if not excluded(rel, False) and rel not in transferred:
+                os.unlink(os.path.join(remote, rel))
+    for dirpath, dirnames, filenames in os.walk(remote, topdown=False):
+        rel_dir = os.path.relpath(dirpath, remote)
+        if rel_dir != "." and not excluded(rel_dir, True) and not os.listdir(dirpath):
+            os.rmdir(dirpath)
 `;
 
 export type DeployRun = {
@@ -170,16 +199,22 @@ export type DeployRun = {
   stdout: string;
   stderr: string;
   captured: string;
+  // The fake server after the run. Empty unless `server` files were given.
+  remote: string;
   lftpScript: string | null;
 };
 
 // Runs the checkout's scripts/deploy.sh for the release, with the fake lftp
-// first on PATH. Nothing leaves the machine.
-export function runDeploySh(release: Release): DeployRun {
+// first on PATH. Nothing leaves the machine. `server` seeds the fake server
+// with files that already live there (for example the secrets file the official
+// workflow generates), so a mirror that would delete or overwrite them shows.
+export function runDeploySh(release: Release, server: Record<string, string> = {}): DeployRun {
   const bin = scratch('bin');
   writeFileSync(join(bin, 'lftp'), FAKE_LFTP);
   chmodSync(join(bin, 'lftp'), 0o755);
   const captured = scratch('captured');
+  const remote = scratch('server');
+  writeTree(remote, server);
   const scriptOut = join(scratch('lftp-script'), 'script.txt');
   const proc = Bun.spawnSync(['bash', join(release.work, 'scripts', 'deploy.sh')], {
     cwd: release.work,
@@ -192,6 +227,7 @@ export function runDeploySh(release: Release): DeployRun {
       FTP_PASS: 'fixture',
       FTP_REMOTE_DIR: './',
       CAPTURE_DIR: captured,
+      REMOTE_DIR: remote,
       LFTP_SCRIPT_OUT: scriptOut,
     },
     stdout: 'pipe',
@@ -202,12 +238,13 @@ export function runDeploySh(release: Release): DeployRun {
     stdout: proc.stdout.toString(),
     stderr: proc.stderr.toString(),
     captured,
+    remote,
     lftpScript: existsSync(scriptOut) ? readFileSync(scriptOut, 'utf8') : null,
   };
 }
 
-export function mustDeploy(release: Release): DeployRun {
-  const run = runDeploySh(release);
+export function mustDeploy(release: Release, server: Record<string, string> = {}): DeployRun {
+  const run = runDeploySh(release, server);
   if (run.code !== 0) {
     throw new Error(`deploy.sh exited ${run.code}: ${run.stderr}${run.stdout}`);
   }

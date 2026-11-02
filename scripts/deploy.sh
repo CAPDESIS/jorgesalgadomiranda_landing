@@ -116,6 +116,12 @@ python3 "$ROOT/scripts/prune-excluded.py" --workflow "$ROOT/.github/workflows/de
 
 echo "Uploading $RELEASE_SHA to $FTP_HOST:$FTP_REMOTE_DIR"
 
+# The one lftp exclude, and not an upload list (that is the pruned tree above):
+# api/secrets.php is generated on the server by the official workflow from the
+# RESEND_* repository secrets (scripts/write-contact-secrets.py) and is gitignored,
+# so no release contains it. Without this, --delete would remove it as a remote
+# file with no local counterpart and contact delivery would stay broken until the
+# next official deploy. An excluded path is neither deleted nor overwritten.
 LFTP_PASSWORD="$FTP_PASS" lftp --env-password -u "$FTP_USER" "$FTP_HOST" <<EOF
 set ssl:verify-certificate yes
 set ftp:ssl-force true
@@ -124,6 +130,7 @@ mirror --reverse \
   --delete \
   --verbose \
   --parallel=4 \
+  --exclude-glob api/secrets.php \
   ./ "$FTP_REMOTE_DIR"
 bye
 EOF

@@ -172,12 +172,18 @@ action, so instead of keeping a second list `deploy.sh` runs
 tree with the action's own matching rules (multimatch, `dot: true`, a later `!`
 pattern puts back what an earlier one dropped, a directory that is dropped takes
 its children) and deletes what the action would not upload. lftp then mirrors
-what is left and is given no exclude list of its own. It fails closed: no
-readable block, a truncated list, or glob syntax the script does not reproduce
-stops the deploy before `lftp` runs. To keep something off the server, add it to
-that block once; both paths follow. `tests/deploy-excludes.test.ts` runs
-`deploy.sh` through a fake `lftp` on the real files and fails if anything the
-workflow excludes (`tests/`, `audits/`, `bunfig.toml`, dotfiles) is uploaded.
+what is left. Its only exclude is `api/secrets.php`, which is not an upload
+rule: the official workflow generates that file on the server from the
+`RESEND_*` secrets and no release contains it, so without the exclude
+`mirror --delete` would remove it and contact delivery would stay broken until
+the next official deploy. An excluded path is neither deleted nor overwritten.
+The pruner fails closed: no readable block, a truncated list, or glob syntax the
+script does not reproduce stops the deploy before `lftp` runs. To keep something
+off the server, add it to that block once; both paths follow.
+`tests/deploy-excludes.test.ts` runs `deploy.sh` through a fake `lftp` on the
+real files and fails if anything the workflow excludes (`tests/`, `audits/`,
+`bunfig.toml`, dotfiles) is uploaded, or if `--delete` removes or overwrites a
+server-side `api/secrets.php`.
 
 ## What gets uploaded
 
