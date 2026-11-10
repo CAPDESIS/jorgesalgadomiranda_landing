@@ -1,0 +1,63 @@
+# Validation Evidence & Documentation Drift: `jorgesalgadomiranda_landing`
+
+- **Task**: `[Spec Kit][T050]` (`#6`)
+- **Repository**: `CAPDESIS/jorgesalgadomiranda_landing`
+- **Audit date**: `2026-11-10`
+
+## Validation Record Table
+
+| application | working_directory | command | scope | status | reason | next_action | evidence_paths |
+|-------------|-------------------|---------|-------|--------|--------|-------------|----------------|
+| `jorgesalgadomiranda-landing` | `.` | `python scripts/validate-static-site.py .` | `web` | `pass` | `Static site validation OK` (exit 0): canonical/hreflang tags, JSON-LD blocks, ES/EN 343-key i18n parity, `/api/contact.php` wiring, no Web3Forms leftovers, and local asset links verified. | `none` | `scripts/validate-static-site.py`, `index.html`, `assets/i18n.js`, `legal/*.html`, `sitemap.xml` |
+| `jorgesalgadomiranda-landing` | `.` | `python scripts/check-asset-integrity.py .` | `web` | `pass` | `asset integrity OK (40 local assets/ refs in index.html)` (exit 0). | `none` | `scripts/check-asset-integrity.py`, `index.html`, `assets/` |
+| `jorgesalgadomiranda-landing` | `.` | `python scripts/check-local-assets.py .` | `web` | `pass` | `Asset guard OK: scanned 57 files, no Zyro CDN refs, all local asset refs present` (exit 0). | `none` | `scripts/check-local-assets.py`, `index.html`, `cv/*.html`, `legal/*.html`, `.htaccess` |
+| `jorgesalgadomiranda-landing` | `.` | `bun test tests/cookie-banner.test.ts tests/aux-surfaces.test.ts tests/asset-integrity.test.ts tests/consent.test.ts tests/email-validation.test.ts tests/i18n-utils.test.ts tests/welcome-modal.test.ts tests/legal-aliases.test.ts` | `web` | `pass` | All pure JS/TS/DOM/CSS suites passed (`100%` line coverage across `assets/i18n.js` and `assets/js/*.js`), including the WCAG AA contrast assertion (`>= 4.8:1`, measured `4.95:1` on `--bg-elev`) for `#cookie-banner-title` (`#61`). | `none` | `tests/cookie-banner.test.ts`, `assets/styles.css`, `assets/js/*.js` |
+| `jorgesalgadomiranda-landing` | `.` | `bun test tests/deploy-excludes.test.ts -t "prune-excluded.py"` | `infra` | `pass` | `23 pass / 0 fail` (exit 0): verified `.github/workflows/deploy.yml` exclude block and `scripts/prune-excluded.py` matcher drop `specs/`, `AGENTS.md`, `MASTER_SPEC.md`, `docs/`, `tests/`, `audits/`, and dotfiles while preserving `.htaccess`, `.well-known/**`, `api/contact.php`, `api/secrets.php`, and `version.json`. (POSIX `/bin/bash` release-archive tests in `tests/` run on `ubuntu-latest` in `.github/workflows/test.yml`.) | `none` | `.github/workflows/deploy.yml`, `scripts/prune-excluded.py`, `tests/deploy-excludes.test.ts` |
+| `jorgesalgadomiranda-landing` | `.` | `bun test tests/ci-hygiene.test.ts -t "contact proxy and analytics contract" && bun test tests/ci-hygiene.test.ts -t "fleet runner policy"` | `security` | `pass` | `15 pass / 0 fail` (exit 0): verified Node 24 action pin, Resend + Turnstile contract, dotfile Apache deny rule, and public-repo GitHub-hosted runner containment (`ubuntu-latest`). | `none` | `tests/ci-hygiene.test.ts`, `.github/workflows/*.yml`, `.htaccess`, `api/contact.php` |
+| `jorgesalgadomiranda-landing` | `.` | `php scripts/test-contact-api.php` | `php` | `blocked` | Pure validator, Resend config, and HTML escaping assertions (`9/9`) passed locally; `php -S 127.0.0.1:<port>` loopback socket bind is blocked by the local Windows sandbox (`Failed to listen on 127.0.0.1`), whereas `.github/workflows/test.yml` (`bun run test:contact`) executes the full mock HTTP server on `ubuntu-latest` on every PR and `main` push. | Run `bun run test:contact` in GitHub Actions `test.yml` (`ubuntu-latest`) on PR. | `scripts/test-contact-api.php`, `api/contact.php`, `api/lib/*.php`, `.github/workflows/test.yml` |
+| `jorgesalgadomiranda-landing` | `.` | `manual-review` | `docs` | `pass` | Audited all root, `docs/`, `audits/`, workflow, script, and PHP files; verified zero secrets/tokens committed and zero em/en dashes in `assets/js/` and `tests/`. | `none` | `MASTER_SPEC.md`, `README.md`, `HANDOFF.md`, `docs/*.md`, `audits/*.md` |
+
+## Integration Boundary Validation
+
+| boundary | source_evidence | target_evidence | status | notes / next_action |
+|----------|-----------------|-----------------|--------|---------------------|
+| Contact form UI -> Same-origin PHP Resend proxy | `index.html` (`action="/api/contact.php"`, `botcheck` honeypot, `cf-turnstile-response`, `assets/js/email-validation.js`) | `api/contact.php`, `api/lib/contact-validator.php`, `api/lib/rate-limit.php`, `api/lib/turnstile.php`, `api/lib/resend-mail.php`, `scripts/write-contact-secrets.py` | `pass` | Synchronized on POST `/api/contact.php`; fails closed (`503`) if `api/secrets.php` / `RESEND_API_KEY` is absent, enforces per-IP rate limiting (`429`), and enforces Cloudflare Turnstile (`400`/`403`) once `TURNSTILE_SECRET_KEY` is provisioned. |
+| Consent manager -> Optional analytics providers (Umami, Cloudflare Web Analytics, PostHog) | `index.html` (`YOUR_UMAMI_WEBSITE_ID`, `YOUR_CF_BEACON_TOKEN`, `YOUR_POSTHOG_KEY` placeholders), `assets/js/cookie-banner.js`, `assets/js/consent.js` | `.github/workflows/deploy.yml` (`Inject production tokens`), `.htaccess` Content-Security-Policy (`stats.capdesis.com`, `static.cloudflareinsights.com`, `us.i.posthog.com`) | `pass` | Providers never initialize before explicit opt-in (`jsm-cookie-consent` v1 record in `localStorage`) and remain inert when `YOUR_*` placeholders are uninjected. |
+| Consultation booking CTA -> Cal.com | `index.html` (`https://cal.com/jorge-salgado-miranda-lt3qxa/30min`) | External Cal.com booker (`docs/TICKETS.md` `T-015`, `T-021`) | `pass` | Active external link using `rel="noopener noreferrer"`; no client-side embed script required. |
+| Release promotion -> Hostinger FTPS + `version.json` parity gate | `.github/workflows/deploy.yml`, `scripts/deploy-gates.py`, `scripts/stamp-assets.py`, `scripts/write-version-json.py`, `scripts/prune-excluded.py` | `https://jorgesalgadomiranda.com/version.json` and FTPS origin fallback | `pass` | `deploy.yml` verifies `ci-wait` (`CI`, `test`, `gitleaks` green on `main`) and rollback parity before FTPS upload, stamps `?v=<sha[:7]>` on all local CSS/JS refs, and verifies live/origin `version.json` post-deploy. |
+
+## Documentation Drift Classification
+
+### 1. False pending items (Markdown says missing/manual, code shows implemented)
+
+| Location | Claim in Markdown | Actual Source Evidence | Disposition |
+|----------|-------------------|------------------------|-------------|
+| `docs/MANUAL_SETUP.md:21-24,43-46` | Instructs editing `index.html` by hand to replace `YOUR_UMAMI_WEBSITE_ID` and `YOUR_CF_BEACON_TOKEN` and committing them to git. | `.github/workflows/deploy.yml:281-308` automatically injects `UMAMI_WEBSITE_ID`, `CF_BEACON_TOKEN`, and `PUBLIC_POSTHOG_KEY` from GitHub Secrets at deploy time so committed `index.html` keeps `YOUR_*` placeholders clean (enforced by `tests/consent.test.ts` and `scripts/validate-static-site.py`). | Reconciled in `MASTER_SPEC.md`; never commit real analytics tokens into `index.html`. |
+| `docs/MANUAL_SETUP.md:112-120` | Instructs replacing `https://cal.com/jorgesalgadomiranda/30min` in `index.html` with the real Cal.com slug. | Already completed (`docs/TICKETS.md` `T-015`); `index.html` points to `https://cal.com/jorge-salgado-miranda-lt3qxa/30min`. | Recorded as completed capability. |
+| `MASTER_SPEC.md:7,79-89,110` (prior generated stub) | Marked readiness `Partial` with unreviewed pending markers (`CLAUDE.md:318`, `HANDOFF.md:312,320`, `docs/CHANGELOG.md:312`, `docs/GITHUB_SECRETS.md:35`, `docs/MANUAL_SETUP.md:53,228`, `docs/TICKETS.md:17`). | Traced all listed lines: `CLAUDE.md` is gitignored/untracked; `docs/GITHUB_SECRETS.md:35` is a security rule ("never into HTML"); `docs/TICKETS.md:17` is the legend definition of `BLOCKED`; `docs/MANUAL_SETUP.md:53` is an optional Cloudflare dashboard toggle. | Replaced stub markers with verified findings in `MASTER_SPEC.md`. |
+
+### 2. Ghost code (Code exists in repo, active docs omit or under-describe it)
+
+| Source Path | Undocumented / Under-documented Capability | Notes |
+|-------------|--------------------------------------------|-------|
+| `api/lib/rate-limit.php`, `api/lib/turnstile.php`, `api/contact.php:73-102` | File-backed per-IP sliding-window rate limiter (`429 Too many requests`, fail-closed) and conditional Cloudflare Turnstile server-side verification (`jsm_turnstile_should_enforce()` / `jsm_turnstile_verify()`). | `README.md:40-41` and `docs/RESEND_SETUP.md` mention Resend, honeypot, and email validation, but omit per-IP throttling and Turnstile enforcement. |
+| `scripts/deploy-gates.py`, `scripts/write-version-json.py`, `scripts/prune-excluded.py` | Automated GitHub Actions workflow-verdict polling gate (`ci-wait`), pre-deploy rollback SHA verification against live/FTPS `version.json`, and single-source FTPS exclude pruning shared by `deploy.yml` and `scripts/deploy.sh`. | Added after `docs/DEPLOY.md` and `docs/GITHUB_SECRETS.md` were written. |
+| `.github/workflows/release-policy.yml` | Enforcing release-policy workflow validating runner containment, action SHA pinning, and workflow hygiene on PRs and `main`. | Omitted from `README.md` repository layout. |
+
+### 3. Stale claims (Markdown contradicts current code or workflow configuration)
+
+| Location | Stale Claim | Current Reality in Source |
+|----------|-------------|---------------------------|
+| `MASTER_SPEC.md:32` & `docs/DEPLOY.md:63,109` | Cite `chochy2001/jorgesalgadomiranda_landing` as the GitHub repository path. | Canonical repository is `CAPDESIS/jorgesalgadomiranda_landing` (`README.md:85`, git remote `origin`). |
+| `docs/DEPLOY.md:6,41-44,89-90` & `docs/GITHUB_SECRETS.md:14-15` | State `deploy.yml` runs on a `self-hosted` `ci-runner-node` / `deploy-only` runner, restricts deploys to Monday-Thursday, and asks for `confirm_backup_ready` / `confirm_release_green` inputs. | `.github/workflows/deploy.yml:15-26,47` runs strictly on `ubuntu-latest` (public-repo runner containment enforced by `tests/ci-hygiene.test.ts:140-160`), accepts only `release_sha` and `confirm_no_p0_p1_alerts`, and replaces manual health/backup checkboxes with automated `scripts/deploy-gates.py` (`ci-wait` + `rollback-check`). |
+| `docs/MANUAL_SETUP.md:7-8` | Claims `After any change, commit and push. GitHub Actions redeploys to Hostinger automatically.` | Pushes to `main` never auto-deploy; production deploys require manual `workflow_dispatch` with an exact 40-char `release_sha` (`.github/workflows/deploy.yml:6-18`). |
+| `docs/DESIGN_SYSTEM.md` (prior to `#61` fix) & `assets/styles.css` | Light-mode `--accent` was `oklch(0.52 0.15 210)` (`#007d98`), yielding `4.39:1` contrast on `--bg-elev` (`#f6f5f2`) for `#cookie-banner-title` (below WCAG AA `4.5:1`). | Updated in `#61` to `oklch(0.49 0.15 210)` (`#00748f`, `4.95:1` on `--bg-elev`, `5.17:1` on `--bg`, `4.57:1` on `--bg-elev-2`) and pinned in `tests/cookie-banner.test.ts`. |
+| `docs/TICKETS.md:59,85` & `MASTER_SPEC.md:166` (archived section) | `T-023` and archived spec notes mention `Web3Forms access-key guard`, and `T-201` states `styles.css is 2723 lines`. | Web3Forms is retired and blocked by CI (`scripts/validate-static-site.py`, `deploy.yml:326`); `assets/styles.css` is `3172` lines. |
+
+### 4. Unresolved claims (External or product-decision state not verifiable from repo files alone)
+
+| Claim / Surface | Why Unresolved in Repo Alone | Tracking / Next Action |
+|-----------------|------------------------------|------------------------|
+| Live GitHub Actions secret provisioning (`RESEND_API_KEY`, `TURNSTILE_SECRET_KEY`, `UMAMI_WEBSITE_ID`, `CF_BEACON_TOKEN`, `PUBLIC_POSTHOG_KEY`) | Secret values live in repository Actions settings and Hostinger `public_html/api/secrets.php`, never in git. | Verify via live `/api/contact.php` smoke and Actions secret inventory before claiming active email/analytics telemetry. |
+| Welcome consultation modal trigger policy (`CAPDESIS/jorgesalgadomiranda_landing#62`) | Source sets `WELCOME_SHOW_DELAY_MS = 12000` (`index.html:2489`, `assets/js/welcome-modal.js:5`) with 7-day `localStorage` dismissal, while issue `#62` tracks an open product decision on whether to move the modal to scroll-depth/exit-intent or remove auto-open entirely. | Keep issue `#62` open for owner product decision. |
+| Cloudflare edge dashboard rules (`docs/TICKETS.md` `T-104` Cache Rule for `*.css?*`/`*.js?*` and `docs/MANUAL_SETUP.md` AI crawler toggle) | Managed in Cloudflare zone settings outside repository configuration. | Verify in Cloudflare dashboard when tuning edge cache TTLs or bot rules. |
