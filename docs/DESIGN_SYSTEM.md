@@ -27,7 +27,7 @@ Legal pages and the 404 surface load that stylesheet
 | `--fg-dim` | `oklch(0.54 0.012 240)` | `oklch(0.52 0.012 250)` | Low-emphasis text |
 | `--border` | `oklch(0.32 0.012 240)` | `oklch(0.76 0.008 250)` | Standard borders |
 | `--border-soft` | `oklch(0.24 0.01 240)` | `oklch(0.85 0.006 250)` | Dashed dividers, subtle lines |
-| `--accent` | `oklch(0.82 0.14 210)` | `oklch(0.52 0.15 210)` | Primary cyan. Interactive states, links, hover |
+| `--accent` | `oklch(0.82 0.14 210)` | `oklch(0.49 0.15 210)` | Primary cyan. Interactive states, links, hover |
 | `--accent-hi` | `oklch(0.90 0.15 210)` | `oklch(0.44 0.16 210)` | Emphasis on accent (rare) |
 | `--accent-dim` | `oklch(0.55 0.12 210)` | `oklch(0.68 0.12 210)` | Very low-emphasis accent |
 | `--accent-warm` | `oklch(0.78 0.14 60)` | `oklch(0.62 0.16 60)` | Secondary warm. Pills, callouts |

@@ -383,6 +383,7 @@ jobs:
             **/node_modules/**
             **/scripts/**
             **/docs/**
+            **/specs/**
             **/audits/**
             **/tests/**
             **/coverage/**
@@ -397,8 +398,10 @@ jobs:
             **/bun.lock
             **/bunfig.toml
             **/README.md
+            **/AGENTS.md
             **/CLAUDE.md
             **/HANDOFF.md
+            **/MASTER_SPEC.md
             **/og.html
             **/verify-*.png
             **/*.log
