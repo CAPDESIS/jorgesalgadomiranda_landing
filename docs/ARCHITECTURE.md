@@ -23,7 +23,7 @@ busted, and reused more safely.
 <html data-theme="dark|light" data-lang="es|en">
   <head>
     SEO meta, JSON-LD Person schema, Open Graph, Twitter card,
-    favicon (data URI SVG), preconnect/preload hints,
+    favicons (/favicon.svg, /favicon.ico, /assets/icons/favicon-32x32.png, /apple-touch-icon.png), preconnect/preload hints,
     <link rel="stylesheet" href="assets/styles.css">
   </head>
   <body>
