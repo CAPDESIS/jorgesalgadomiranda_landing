@@ -152,12 +152,12 @@ function jsm_resend_send_html(array $config, string $to, string $subject, string
     $response = curl_exec($ch);
     if ($response === false) {
         $message = curl_error($ch) ?: 'Unknown Resend HTTP error';
-        curl_close($ch);
+        unset($ch);
         return ['ok' => false, 'status' => 502, 'body' => $message, 'decoded' => null, 'provider' => 'resend'];
     }
 
     $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    curl_close($ch);
+    unset($ch);
 
     $decoded = null;
     if ($response !== '') {

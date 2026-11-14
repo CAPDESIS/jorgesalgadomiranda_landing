@@ -359,7 +359,7 @@ curl_setopt_array($ch, [
 ]);
 $body = curl_exec($ch);
 $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-curl_close($ch);
+unset($ch);
 $decoded = is_string($body) ? json_decode($body, true) : null;
 check('contact endpoint 200', $status === 200, 'status=' . $status . ' body=' . substr((string) $body, 0, 200));
 check('contact endpoint success', is_array($decoded) && ($decoded['success'] ?? false) === true);
@@ -380,7 +380,7 @@ curl_setopt_array($ch, [
 ]);
 $honeypotBody = curl_exec($ch);
 $honeypotStatus = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-curl_close($ch);
+unset($ch);
 $honeypotJson = is_string($honeypotBody) ? json_decode($honeypotBody, true) : null;
 check('honeypot soft-succeeds', $honeypotStatus === 200 && ($honeypotJson['success'] ?? false) === true);
 
