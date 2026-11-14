@@ -366,7 +366,19 @@ describe('scripts/deploy.sh uploads exactly what deploy.yml uploads', () => {
     // The oracle and the script agree with hand-written facts too.
     for (const rel of Object.keys(SHOULD_STAY_OFF)) expect(uploaded).not.toContain(rel);
     for (const rel of Object.keys(SHOULD_GO_UP)) expect(uploaded).toContain(rel);
-    for (const rel of ['index.html', '404.html', '.htaccess', 'robots.txt', 'sitemap.xml', 'og.png', 'version.json']) {
+    for (const rel of [
+      'index.html',
+      '404.html',
+      '.htaccess',
+      'robots.txt',
+      'sitemap.xml',
+      'og.png',
+      'favicon.svg',
+      'favicon.ico',
+      'apple-touch-icon.png',
+      'assets/icons/favicon-32x32.png',
+      'version.json',
+    ]) {
       expect(uploaded).toContain(rel);
     }
     for (const rel of ['bunfig.toml', 'bun.lock', 'package.json', 'README.md', 'og.html', 'api/secrets.example.php']) {

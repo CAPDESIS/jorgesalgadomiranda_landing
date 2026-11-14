@@ -71,4 +71,49 @@ describe('asset integrity (zyrosite regression guard)', () => {
     const missing = required.filter((rel) => !existsSync(join(ROOT, rel)));
     expect(missing).toEqual([]);
   });
+
+  test('unified brand icon files exist with expected formats and dimensions', () => {
+    const svg = readFileSync(join(ROOT, 'favicon.svg'), 'utf8');
+    expect(svg).toContain('#0a0e1a');
+    expect(svg).toContain('#00d4ff');
+    expect(svg).toContain('>js<');
+
+    const ico = readFileSync(join(ROOT, 'favicon.ico'));
+    // ICO header: reserved=0, type=1, count>=2
+    expect(ico.readUInt16LE(0)).toBe(0);
+    expect(ico.readUInt16LE(2)).toBe(1);
+    expect(ico.readUInt16LE(4)).toBeGreaterThanOrEqual(2);
+
+    const png32 = readFileSync(join(ROOT, 'assets/icons/favicon-32x32.png'));
+    expect(png32.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+    expect(png32.readUInt32BE(16)).toBe(32);
+    expect(png32.readUInt32BE(20)).toBe(32);
+
+    const apple = readFileSync(join(ROOT, 'apple-touch-icon.png'));
+    expect(apple.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+    expect(apple.readUInt32BE(16)).toBe(180);
+    expect(apple.readUInt32BE(20)).toBe(180);
+    // Color type 2 = RGB (no alpha channel)
+    expect(apple[25]).toBe(2);
+  });
+
+  test('all shipped HTML pages share unified root-relative js monogram icon links', () => {
+    const pages = [
+      'index.html',
+      '404.html',
+      'legal/privacy.html',
+      'legal/terms.html',
+      'legal/cookies.html',
+      'cv/Jorge_Salgado_Miranda_CV_EN.html',
+      'cv/Jorge_Salgado_Miranda_CV_ES.html',
+    ];
+    for (const rel of pages) {
+      const html = readFileSync(join(ROOT, rel), 'utf8');
+      expect(html).toContain('href="/favicon.svg"');
+      expect(html).toContain('href="/favicon.ico"');
+      expect(html).toContain('href="/assets/icons/favicon-32x32.png"');
+      expect(html).toContain('href="/apple-touch-icon.png"');
+      expect(html).not.toContain('data:image/svg+xml');
+    }
+  });
 });
