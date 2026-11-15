@@ -1,4 +1,7 @@
-# Image audit evidence — 2026-07-13
+# Image audit evidence - 2026-07-13
+
+> [!NOTE]
+> Corte historico fechado (2026-07-14): evidencia historica conservada; consulta `README.md` y `MASTER_SPEC.md` para el estado vigente.
 
 User screenshots of production (`jorgesalgadomiranda.com`) while
 `assets.zyrosite.com` returned HTTP 404 for every hotlinked asset.

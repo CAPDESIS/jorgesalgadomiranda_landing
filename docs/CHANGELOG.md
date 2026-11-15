@@ -1,5 +1,8 @@
 # Changelog
 
+> [!NOTE]
+> Corte historico fechado (2026-09-11): consulta `README.md`, `AGENTS.md`, `MASTER_SPEC.md` y `docs/DEPLOY.md` para el estado vigente.
+
 Reverse-chronological log of what shipped, why, and what to verify next time.
 
 ---

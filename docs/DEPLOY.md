@@ -1,112 +1,82 @@
 # Deploy
 
-The site is hosted on Hostinger and deploys through one controlled FTP/FTPS
-path:
+The site is hosted on Hostinger and deploys through one controlled FTP/FTPS path:
 
-1. **Manual `workflow_dispatch`** from `main`, on the trusted self-hosted
-   `deploy-only` runner, with an exact release SHA, release confirmations,
-   pinned FTP credentials and post-deploy smoke.
-2. **Manual** from your laptop via `bun run deploy` only as an audited recovery
-   fallback.
+1. **Manual `workflow_dispatch`** from `main` via `.github/workflows/deploy.yml` (`Deploy to production`), running on GitHub-hosted **`ubuntu-latest`** (never a self-hosted fleet runner, because this repository is public under `CAPDESIS/CapLiving#525` containment), with an exact 40-character `release_sha`, automated CI/rollback gates (`scripts/deploy-gates.py`), pinned FTP credentials, and post-deploy smoke checks.
+2. **Manual recovery fallback** from a developer machine via `RELEASE_SHA=<40-char-main-sha> bun run deploy` (`scripts/deploy.sh`), only when GitHub Actions is unavailable.
 
 Both paths stamp asset URLs through one script, `scripts/stamp-assets.py`:
-every local `.css`, `.js` and `.mjs` reference in every deployed page gets
+every local `.css`, `.js`, and `.mjs` reference in every deployed page gets
 `?v=<release SHA[:7]>`, and the run fails if any is left bare. The origin
 ignores the query and Cloudflare keeps the first copy it fetches for the 7-day
-CSS and JS Expires, so a reference that ships without a token keeps old bytes
+CSS and JS `Expires`, so a reference that ships without a token keeps old bytes
 cached. Nothing is listed by hand: a new page or script is covered when it is
 added. `tests/stamp-assets.test.ts` runs both paths against a throwaway release
 and fails on any bare reference.
 
-## Production status
+Both paths also share a single exclude definition (`exclude: |` in
+`.github/workflows/deploy.yml`): `scripts/deploy.sh` invokes
+`scripts/prune-excluded.py` to apply the workflow's exact minimatch/multimatch
+rules (`{dot: true, matchBase: true}`) to the staged `git archive` tree before
+mirroring with `lftp`.
 
-Measured 2026-10-29: the live apex serves cache-busted assets stamped
-`v=2e53908`, while `origin/main` is `5b1e2c2`. That is **artifact parity, not
-drift**: the two commits in between (`864612d` #73, `5b1e2c2` #72) touch only
-`.github/workflows/`, `scripts/deploy-gates.py` and
-`tests/deploy-gates.test.ts`, so no deployable path changed and the served
-bytes are what `main` would publish. The edge returns
-`strict-transport-security: max-age=63072000; includeSubDomains; preload`.
-
-Compare paths, not SHAs: a bare SHA comparison here reports drift on every CI
-commit, and this repository takes many.
-
-Historical note (2026-07-22 pilot): `.github/workflows/deploy.yml` is
-the only production-deploy path:
-
-- Pushes to `main` and daily schedules do not deploy automatically. They run
-  validation/audit workflows only.
-- `workflow_dispatch` requires an exact SHA contained in `origin/main`, green
-  validation, no known P0/P1 alerts, and backup confirmation (`yes` or `n/a`).
-- Production deploys are allowed Monday through Thursday in
-  `America/Mexico_City`.
-- The deployment runs on the trusted self-hosted `deploy-only` runner and keeps
-  the production environment/concurrency lock.
-- Run `28984333192` on commit `bc3f382` passed in 26 seconds: release context,
-  host preflight, cache-bust, optional token injection, contact-form guard, FTPS
-  upload and asset smoke all passed.
-- External smoke after deploy returned HTTP 200 for `/`, `/robots.txt` and the
-  versioned CSS asset.
-- Follow-up `fd23fc4` confirmed the origin/new cache-busted HTML carried the
-  updated CapMenu link, while Hostinger CDN kept bare `/` stale as
-  `x-hcdn-cache-status: HIT`. The workflow now validates cache-busted HTML
-  content when the edge allows it, and `.htaccess` sets explicit 5-minute
-  HTML/XML Expires plus `s-maxage=300`.
-- Current note: set `RESEND_API_KEY` (+ `RESEND_FROM` / `RESEND_TO`) in GitHub
-  Actions so deploy writes `api/secrets.php`. Without it, `/api/contact.php`
-  returns 503. See `docs/RESEND_SETUP.md`.
-
-## Automatic deploy: GitHub Actions
+## Automated deploy: GitHub Actions (`deploy.yml`)
 
 ### Setup (once)
 
-Go to `github.com/chochy2001/jorgesalgadomiranda_landing/settings/secrets/actions`
-and create these **four repository secrets**:
+Go to `github.com/CAPDESIS/jorgesalgadomiranda_landing/settings/secrets/actions`
+and configure the **three required FTP repository secrets** (plus optional
+analytics/contact secrets):
 
-| Secret name        | Example value        | Notes                                     |
-|--------------------|----------------------|-------------------------------------------|
-| `FTP_HOST`         | `ftp.jorgesalgadomiranda.com` or `files.hostinger.com` | Same value you'd put in an FTP client |
-| `FTP_USER`         | `u1234567`           | Hostinger panel > Files > FTP Accounts     |
-| `FTP_PASSWORD`     | `your-real-password` | Password from the same panel               |
+| Secret name           | Required? | Example value                                         | Notes                                              |
+|-----------------------|-----------|-------------------------------------------------------|----------------------------------------------------|
+| `FTP_HOST`            | yes       | `ftp.jorgesalgadomiranda.com` or `46.202.194.123`     | Same host/IP from Hostinger hPanel > FTP Accounts  |
+| `FTP_USER`            | yes       | `u1234567`                                            | Hostinger panel > Files > FTP Accounts             |
+| `FTP_PASSWORD`        | yes       | `your-real-password`                                  | Password from the same panel                       |
+| `RESEND_API_KEY`      | for form  | `re_xxxxxxxx`                                         | Written into `api/secrets.php`; 503 without it     |
+| `RESEND_FROM`         | optional  | `Jorge Salgado Miranda <noreply@jorgesalgadomiranda.com>` | Defaulted by `write-contact-secrets.py` if unset |
+| `RESEND_TO`           | optional  | `jorgesalgadomiranda@protonmail.com`                  | Defaulted by `write-contact-secrets.py` if unset   |
+| `RESEND_REPLY_TO`     | optional  | `jorgesalgadomiranda@protonmail.com`                  | Optional reply-to override in `api/secrets.php`    |
+| `UMAMI_WEBSITE_ID`    | optional  | `a1b2c3d4-...`                                        | Replaces `YOUR_UMAMI_WEBSITE_ID` in `index.html`   |
+| `CF_BEACON_TOKEN`     | optional  | Cloudflare RUM token                                  | Replaces `YOUR_CF_BEACON_TOKEN` in `index.html`    |
+| `PUBLIC_POSTHOG_KEY`  | optional  | `phc_...`                                             | Replaces `YOUR_POSTHOG_KEY` in `index.html`        |
 
-> `FTP_REMOTE_DIR` is **no longer required**. Hostinger's FTP user is
+> `FTP_REMOTE_DIR` is **no longer used** by `deploy.yml`. Hostinger's FTP user is
 > chrooted to `public_html/`, so the workflow uploads to `./` at the
-> account root. If the secret still exists it's harmless; you can delete
-> it.
-
-Exact names matter. The workflow at `.github/workflows/deploy.yml` reads
-them as `${{ secrets.FTP_HOST }}`, etc.
+> account root. See [`GITHUB_SECRETS.md`](./GITHUB_SECRETS.md) for details.
 
 ### How it runs
 
-Trigger it manually from the Actions tab using the "Run workflow" button. The
-workflow is registered with `workflow_dispatch` only; `push` and scheduled jobs
-live in other workflow files and do not publish to production.
+Trigger **Deploy to production** manually from the Actions tab (`workflow_dispatch`).
+Pushes to `main` and daily schedules run validation/audit workflows (`ci.yml`,
+`test.yml`, `gitleaks.yml`, `release-policy.yml`) and do not publish to production.
 
-Flow:
-1. The workflow resolves the exact `release_sha` input and verifies that it is
-   contained in `origin/main`.
-2. The operator confirms release health, known P0/P1 status and backup state;
-   production is gated to Monday-Thursday in `America/Mexico_City`, and there
-   is currently no separate staging deploy workflow in this repo.
-3. `actions/checkout` v7.0.1 (pinned SHA in `deploy.yml`) pulls the selected SHA.
-4. The workflow sanitizes and resolves `FTP_HOST`.
-5. It rewrites CSS/JS URLs with the short SHA for cache busting.
-6. Optional production tokens are injected from secrets when configured.
-7. `SamKirkland/FTP-Deploy-Action` v4.4.0 (pinned SHA in `deploy.yml`) mirrors the working tree to the
-   FTP server on port 21 using FTPS.
-8. The action uses the same exclude list as the local deploy script, so
-   `.git*`, `.github/`, `docs/`, `scripts/`, `.env*`, `node_modules/`,
-   `bun.lockb`, `package*.json`, `README.md` and `og.html` never leave
-   the repo.
-9. Static assets are smoke-tested from the public domain after upload.
+Inputs:
+- `release_sha`: exact 40-character commit SHA from `origin/main`.
+- `confirm_no_p0_p1_alerts`: type `yes` to confirm central monitoring has no open P0/P1 alerts (kept manual because Alertmanager requires a production SSH identity that a public repo on `ubuntu-latest` must not hold).
 
-Typical duration: 30-60 seconds.
+Automated flow on `ubuntu-latest` (`environment: production`, `concurrency: deploy-production`, `cancel-in-progress: false`):
+1. **Resolve & verify release context**: validates `release_sha` (40 hex chars), verifies `confirm_no_p0_p1_alerts == "yes"`, checks out `release_sha`, and confirms `git merge-base --is-ancestor "$RELEASE_SHA" refs/remotes/origin/main`.
+2. **Automated release gates (`scripts/deploy-gates.py` from `origin/main`)**:
+   - `ci-wait`: polls GitHub Actions runs (up to 10 attempts, 30s apart for listing lag) and requires completed `success` push runs on `main` for `CI`, `test`, and `gitleaks` at `release_sha`.
+   - `rollback-point`: fetches live `https://jorgesalgadomiranda.com/version.json` (or falls back to reading `/version.json` from the Hostinger origin over TLS 1.2 FTPS when Cloudflare Bot Fight Mode returns 403 to runner IPs) and requires the served SHA to exist in `origin/main`.
+3. **Run release tests**: sets up Bun `1.3.14`, runs `bun install --frozen-lockfile` and `bun test --coverage`.
+4. **Preflight & integrity checks**: sanitizes `FTP_HOST`, checks DNS/IP resolution, and runs `scripts/check-asset-integrity.py` + Zyrosite hotlink grep.
+5. **Stamp, version marker, and token inject**:
+   - Runs `scripts/stamp-assets.py` (from `origin/main`) to append `?v=<SHA[:7]>` to all local `.css`/`.js`/`.mjs` references.
+   - Runs `scripts/write-version-json.py` to generate `version.json` with `sha`.
+   - Substitutes configured `UMAMI_WEBSITE_ID`, `CF_BEACON_TOKEN`, and `PUBLIC_POSTHOG_KEY` in `index.html`, and generates `api/secrets.php` via `scripts/write-contact-secrets.py` when `RESEND_API_KEY` is set.
+   - Verifies `index.html` references `/api/contact.php` (never Web3Forms) and `api/contact.php` is present.
+6. **FTPS upload (`SamKirkland/FTP-Deploy-Action@v4.4.0`, pinned SHA)**: uploads `./` over explicit FTPS (port 21), excluding repo tooling, docs, tests, specs, audits, and dotfiles (with explicit `!` exceptions for `.htaccess` and `.well-known/**`).
+7. **Post-deploy smoke test & parity gate**:
+   - Probes `/?v=<SHA[:7]>` (accepting 200 with content checks, or 403 only when Cloudflare Bot Fight Mode challenges the runner TLS fingerprint).
+   - Verifies HTTP 200 across 18 static assets (`robots.txt`, `humans.txt`, `og.png`, versioned CSS/JS, logos, brands, portrait, font, EN CV PDF).
+   - Verifies `/version.json` parity (`sha == RELEASE_SHA`) over HTTPS or FTPS origin fallback.
 
 ### Status checks
 
 Watch the run live at
-`github.com/chochy2001/jorgesalgadomiranda_landing/actions`.
+`github.com/CAPDESIS/jorgesalgadomiranda_landing/actions`.
 
 ### Finding the exact FTP host value
 
@@ -146,11 +116,10 @@ you the DNS didn't resolve. Double-check the value in hPanel.
 - **FTPS handshake failure**: verify Hostinger supports explicit FTPS on port
   21 for this FTP account before changing protocol. Do not silently downgrade
   to plain FTP without documenting the risk.
-- **Contact form warning**: set `RESEND_API_KEY` (+ FROM/TO) in GitHub Actions
-  secrets. Without it the workflow still deploys, but the client-side guard
-  blocks submissions visibly.
-- **Concurrency lock** from a still-running deploy. The `concurrency`
-  block in the workflow serializes deploys so you won't race yourself.
+- **Contact form 503**: set `RESEND_API_KEY` (+ `RESEND_FROM` / `RESEND_TO`)
+  in GitHub Actions secrets and redeploy so `api/secrets.php` is written.
+- **Concurrency lock**: `deploy.yml` sets `concurrency: deploy-production` with
+  `cancel-in-progress: false` to serialize releases safely.
 
 ## Manual deploy (fallback)
 
@@ -159,73 +128,63 @@ Requires `lftp` on your machine:
 ```bash
 brew install lftp
 cp .env.example .env
-# fill in FTP_HOST, FTP_USER, FTP_PASS, FTP_REMOTE_DIR
-bun run deploy
+# fill in FTP_HOST, FTP_USER, FTP_PASS (or FTP_PASSWORD), FTP_REMOTE_DIR=./
+RELEASE_SHA=<40-char-origin-main-sha> bun run deploy
 ```
 
-The script at `scripts/deploy.sh` publishes the same files as the GitHub
-Actions workflow and stamps asset URLs through the same
-`scripts/stamp-assets.py`. There is one exclude list: the `exclude:` block of
-`.github/workflows/deploy.yml`. lftp reads globs differently from the FTP
-action, so instead of keeping a second list `deploy.sh` runs
-`scripts/prune-excluded.py`, which reads that block, applies it to the staged
-tree with the action's own matching rules (multimatch, `dot: true`, a later `!`
-pattern puts back what an earlier one dropped, a directory that is dropped takes
-its children) and deletes what the action would not upload. lftp then mirrors
-what is left. Its only exclude is `api/secrets.php`, which is not an upload
-rule: the official workflow generates that file on the server from the
-`RESEND_*` secrets and no release contains it, so without the exclude
-`mirror --delete` would remove it and contact delivery would stay broken until
-the next official deploy. An excluded path is neither deleted nor overwritten.
-The pruner fails closed: no readable block, a truncated list, or glob syntax the
-script does not reproduce stops the deploy before `lftp` runs. To keep something
-off the server, add it to that block once; both paths follow.
-`tests/deploy-excludes.test.ts` runs `deploy.sh` through a fake `lftp` on the
-real files and fails if anything the workflow excludes (`tests/`, `audits/`,
-`bunfig.toml`, dotfiles) is uploaded, or if `--delete` removes or overwrites a
-server-side `api/secrets.php`.
+The script at `scripts/deploy.sh` stages a clean `git archive` for
+`RELEASE_SHA` (verified as an ancestor of `origin/main`), runs
+`scripts/stamp-assets.py`, injects optional analytics tokens into `index.html`,
+writes `version.json` via `scripts/write-version-json.py`, and prunes the staged
+tree with `scripts/prune-excluded.py` using the single `exclude: |` block in
+`.github/workflows/deploy.yml`.
+
+`lftp` then mirrors the pruned tree with `mirror --reverse --delete --parallel=4 --exclude-glob api/secrets.php`.
+Keeping `api/secrets.php` in `--exclude-glob` prevents `--delete` from wiping
+the server-side Resend credentials file that `deploy.yml` generates.
+`scripts/prune-excluded.py` fails closed if the workflow block is unreadable,
+truncated, or uses unsupported glob syntax, and `tests/deploy-excludes.test.ts`
+exercises `deploy.sh` against a fake `lftp` binary to prevent exclude drift.
 
 ## What gets uploaded
 
-| File / Dir                          | Uploaded? | Reason                                |
-|-------------------------------------|-----------|---------------------------------------|
-| `index.html`                        | yes       | the site                              |
-| `og.png`                            | yes       | Open Graph card                       |
-| `cv/*.html`                         | yes       | print-ready CVs                       |
-| `assets/cv/*.pdf`                   | yes       | downloadable PDF                      |
-| `fonts/*.woff2`                     | yes       | self-hosted font files                |
-| `.htaccess`                         | yes       | Apache headers + HTTPS redirect       |
-| `robots.txt`                        | yes       | crawlers + sitemap pointer            |
-| `sitemap.xml`                       | yes       | SEO                                   |
-| `og.html`                           | no        | source for og.png, not needed live    |
-| `docs/`                             | no        | repo documentation                    |
-| `scripts/`                          | no        | local tooling                         |
-| `.github/`                          | no        | CI config                             |
-| `.env*`, `.gitignore`, `.git/`      | no        | private / dev-only                    |
-| `package.json`, `README.md`         | no        | repo metadata                         |
+| File / Dir                                  | Uploaded? | Reason                                      |
+|---------------------------------------------|-----------|---------------------------------------------|
+| `index.html`, `404.html`                    | yes       | landing page and custom 404 surface         |
+| `legal/*.html`                              | yes       | published privacy, terms, and cookie pages  |
+| `cv/*.html`, `assets/cv/*.pdf`              | yes       | HTML and downloadable PDF CVs               |
+| `assets/styles.css`, `assets/i18n.js`, `assets/js/` | yes | stylesheets, dictionaries, browser scripts  |
+| `assets/{brands,icons,images,logos}/`, `fonts/*.woff2` | yes | self-hosted visual assets and woff2 fonts |
+| `api/contact.php`, `api/lib/*.php`, `api/secrets.php` (generated) | yes | same-origin Resend/Turnstile contact proxy |
+| `og.png`, `favicon.ico`, `favicon.svg`, `apple-touch-icon.png` | yes | social card and site icons |
+| `version.json` (generated)                  | yes       | release SHA parity marker                   |
+| `.htaccess`, `robots.txt`, `sitemap.xml`, `humans.txt` | yes | Apache rules, SEO, crawl policy     |
+| `og.html`, `api/secrets.example.php`        | no        | source/example templates, excluded by `deploy.yml` |
+| `docs/`, `specs/`, `audits/`, `tests/`, `scripts/`, `coverage/` | no | repo docs, tests, and tooling      |
+| `.github/`, `.git*`, `.env*`, `node_modules/`, `.*`, `.*/**` | no | CI config, secrets, dotfiles (except `.htaccess` and `.well-known/**`) |
+| `package.json`, `bun.lock`, `bunfig.toml`, `*.md` | no  | package metadata and root Markdown docs     |
 
 ## Rollback
 
 Hostinger does not give you per-file version history. If a deploy breaks
-production, the cleanest rollback is:
+production, trigger **Deploy to production** (`workflow_dispatch`) from the
+Actions tab pointing `release_sha` at the last known-good 40-character SHA on
+`origin/main` (you can inspect the prior served SHA in `version.json`), or run
+the fallback script locally:
 
 ```bash
-git checkout <last-good-commit>
-bun run deploy
-git checkout main
+RELEASE_SHA=<last-good-40-char-main-sha> bun run deploy
 ```
-
-This re-runs the same mirror against the remote with the old file tree,
-restoring it. Then switch back to `main` locally so future commits are
-based on current.
-
-Alternatively, trigger the GitHub Actions workflow manually pointing at the
-last-good commit via the "Run workflow" UI and provide the required
-confirmations.
 
 ## Smoke test before deploy
 
 ```bash
+bun run lint
+bun run build
+bun run check:assets
+bun run test:assets
+bun test --coverage
+bun run test:contact
 python3 -m http.server 8765 --bind 127.0.0.1
 # open http://127.0.0.1:8765/
 ```
@@ -235,9 +194,9 @@ Click through:
 - Theme toggle: light <-> dark works, persists across reload
 - Lang toggle: ES <-> EN works
 - About: portrait visible, quick-facts box renders, 4 cards below
-- Engineering: 6 cards with kicker (CIMIENTOS, ALCANCE, ...)
-- CV button: opens `cv/Jorge_Salgado_Miranda_CV_EN.html`
-- PDF download: `assets/cv/Jorge_Salgado_Miranda_CV.pdf` returns 200
+- Engineering: 6 cards with kicker (`BACKBONE`, `REACH`, ...)
+- CV button: opens `cv/Jorge_Salgado_Miranda_CV_EN.html` or `cv/Jorge_Salgado_Miranda_CV_ES.html`
+- PDF downloads: `assets/cv/Jorge_Salgado_Miranda_CV_EN.pdf` and `assets/cv/Jorge_Salgado_Miranda_CV_ES.pdf` return 200
 
 ## DNS
 
@@ -245,53 +204,44 @@ Click through:
 (`alberto.ns.cloudflare.com`, `harlee.ns.cloudflare.com`; measured
 2026-10-13 via `dig NS`). Apex and `www` resolve to Cloudflare edge
 addresses (proxied; no `www` CNAME). HTTPS terminates at the Cloudflare
-edge in front of the Hostinger origin. (An older revision of this
-section claimed Hostinger nameservers; that has been false since DNS
-moved to Cloudflare; see `docs/MANUAL_SETUP.md` §2.)
+edge in front of the Hostinger origin.
 
 ## Third-party tokens to plug in
 
-The repo ships with clearly-labelled `YOUR_*` placeholders. Fill them in
-and push. All four are safe to commit because they're scoped to the
-public domain and/or don't expose secrets server-side.
+Production analytics tokens live in GitHub Actions Secrets and replace `YOUR_*`
+placeholders in `index.html` during deploy (do not commit real tokens):
 
-| Placeholder                  | Where                                      | Where to get it                                       |
-|------------------------------|--------------------------------------------|-------------------------------------------------------|
-| `YOUR_UMAMI_WEBSITE_ID`      | `<script data-website-id>` in `index.html` | `stats.capdesis.com` → Settings → Websites → Add site |
-| `YOUR_CF_BEACON_TOKEN`       | `data-cf-beacon` in `index.html`           | Cloudflare → Analytics & Logs → Web Analytics         |
-| `RESEND_API_KEY` / `RESEND_FROM` / `RESEND_TO` | `api/secrets.php` at deploy | Resend dashboard; see `docs/RESEND_SETUP.md` |
-| `jorgesalgadomiranda/30min`  | `href` on `#cal-cta` button in `index.html`| cal.com → Event Types → copy the slug                 |
-
-After plugging them in:
-1. Smoke-test locally (`python3 -m http.server 8765 --bind 127.0.0.1`)
-2. Submit the contact form with a real email. Confirm it hits your inbox.
-3. Check the Umami dashboard within ~60s to see the visit appear.
-4. Check the Cloudflare Web Analytics dashboard within ~5 min.
+| Placeholder / Secret                 | Where                                      | Where to get it                                       |
+|--------------------------------------|--------------------------------------------|-------------------------------------------------------|
+| `YOUR_UMAMI_WEBSITE_ID` (`UMAMI_WEBSITE_ID`) | `<script data-website-id>` in `index.html` | `stats.capdesis.com` > Settings > Websites > Add site |
+| `YOUR_CF_BEACON_TOKEN` (`CF_BEACON_TOKEN`) | `data-cf-beacon` in `index.html`         | Cloudflare > Analytics & Logs > Web Analytics         |
+| `YOUR_POSTHOG_KEY` (`PUBLIC_POSTHOG_KEY`) | PostHog loader in `index.html`        | PostHog > Settings > Project API key                  |
+| `RESEND_API_KEY` / `RESEND_FROM` / `RESEND_TO` | `api/secrets.php` at deploy      | Resend dashboard; see [`RESEND_SETUP.md`](./RESEND_SETUP.md) |
+| `TURNSTILE_SECRET_KEY` (optional)    | `api/secrets.php` or server env            | Cloudflare Turnstile dashboard                        |
+| `jorge-salgado-miranda-lt3qxa/30min` | `href` on `#cal-cta` button in `index.html`| cal.com > Event Types (already wired in `index.html`) |
 
 ## Security stack
 
 Defense-in-depth for a static site:
 
-1. **Cloudflare (free plan, proxied DNS)**: WAF, DDoS, bot fight mode,
-   client-side security monitor, leaked-credential mitigation. Already
-   enabled.
-2. **`.htaccess`**: HSTS, X-Frame-Options, CSP, Referrer-Policy,
-   Permissions-Policy, gzip, long-cache immutable assets. Lives at
-   repo root, uploaded on every deploy.
-3. **FTP password rotation**: rotate `FTP_PASSWORD` secret every
-   3-6 months in Hostinger panel and GitHub Secrets.
-4. **Watermark in code**: scattered attribution in HTML comment,
-   `<meta name="template-origin">`, `--jsm-origin` CSS custom property,
-   `data-origin` on `<html>`/`<body>`, JSON-LD `@id`, and a console
-   signature. Humans can find it; casual AI-assisted rebrands miss at
-   least one.
+1. **Cloudflare (proxied DNS)**: WAF, DDoS, Bot Fight Mode, client-side security monitor, leaked-credential mitigation.
+2. **`.htaccess`**: PHP CVE-2026-109618/109619 mitigation block, HSTS (`max-age=63072000; includeSubDomains; preload`), `X-Frame-Options`, CSP, `Referrer-Policy`, `Permissions-Policy`, dotfile/`api/secrets.php`/`api/lib/` denial, gzip, long-cache immutable assets.
+3. **FTP password rotation**: rotate `FTP_PASSWORD` secret every 3-6 months in Hostinger panel and GitHub Secrets.
+4. **Watermark in code**: scattered attribution in HTML comment, `<meta name="template-origin">`, `--jsm-origin` CSS custom property, `data-origin` on `<html>`/`<body>`, JSON-LD `@id`, and console signature.
 
 ## Pre-deploy checklist
 
-- [ ] `git status` clean
-- [ ] Smoke test on `http://127.0.0.1:8765` passes
-- [ ] i18n parity unchanged or improved (run the `EN={n}, ES={n}` Python
-      check from `CHANGELOG.md` examples)
-- [ ] Push to `main` if you want the validation workflow to run on that commit
-- [ ] Trigger the manual deploy workflow from the Actions tab with the exact
-      release SHA you want to promote
+- [ ] `git status` clean and changes merged to `origin/main`
+- [ ] Local validation suite (`lint`, `build`, `check:assets`, `test:assets`, `bun test --coverage`, `test:contact`) passes
+- [ ] `CI`, `test`, and `gitleaks` push runs on `main` are green for the target `release_sha`
+- [ ] Trigger **Deploy to production** (`workflow_dispatch`) from Actions with the exact 40-char `release_sha` and `confirm_no_p0_p1_alerts=yes`
+
+---
+
+## Historical snapshots
+
+> [!NOTE]
+> Corte historico fechado (2026-10-29): los registros siguientes documentan mediciones y reglas anteriores de `deploy.yml` (antes del paso a `ubuntu-latest`, `scripts/deploy-gates.py` y la politica vigente de este documento). Consulta las secciones anteriores para el flujo actual.
+
+- **2026-10-29 (production parity snapshot):** Measured 2026-10-29: the live apex served cache-busted assets stamped `v=2e53908`, while `origin/main` was `5b1e2c2` (artifact parity: commits `864612d` #73 and `5b1e2c2` #72 touched only `.github/workflows/`, `scripts/deploy-gates.py`, and `tests/deploy-gates.test.ts`). Edge returned `strict-transport-security: max-age=63072000; includeSubDomains; preload`.
+- **2026-07-22 (initial deploy pilot):** Early `deploy.yml` revisions used a self-hosted `deploy-only` runner, Monday-Thursday `America/Mexico_City` window checks, and manual `confirm_release_green` / `confirm_backup_ready` inputs. Run `28984333192` on commit `bc3f382` passed in 26 seconds; follow-up `fd23fc4` exposed Hostinger CDN bare-`/` caching (`x-hcdn-cache-status: HIT`), leading to `.htaccess` 5-minute HTML/XML `Expires` + `s-maxage=300` and cache-busted HTML smoke probes.
