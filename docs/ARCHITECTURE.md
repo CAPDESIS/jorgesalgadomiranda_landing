@@ -85,7 +85,7 @@ perceptual lightness across the whole gamut.
   --font-sans:  'Geist', sans-serif;
   --font-mono:  'Geist Mono', monospace;
   --maxw: 1280px;
-  --pad-x: clamp(20px, 5vw, 64px);
+  --pad-x: clamp(20px, 4vw, 80px);
 }
 ```
 
@@ -160,7 +160,7 @@ renders correctly even if JavaScript fails or `localStorage` is unavailable.
 The dictionaries are frozen so an attacker cannot mutate
 `window.__I18N__` from another script in the page.
 
-The current dictionary has **202 keys per language**, in perfect parity.
+The current dictionary has **343 keys per language**, in perfect parity.
 
 ## Accessibility
 
@@ -172,8 +172,8 @@ The current dictionary has **202 keys per language**, in perfect parity.
   short-circuits the cursor / magnetic / tilt JS
 - `aria-hidden="true"` on the marquee since it's purely decorative
 - All `target="_blank"` links carry `rel="noopener noreferrer"`
-- `scroll-margin-top: 96px` on every section so anchored navigation lands
-  below the fixed nav
+- `section[id] { scroll-margin-top: 0; }` and `#main { scroll-margin-top: 72px; }`
+  so anchored navigation aligns cleanly below the fixed nav using section top padding
 
 ## Performance
 

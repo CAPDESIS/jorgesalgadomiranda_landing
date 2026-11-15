@@ -1,3 +1,6 @@
+> [!NOTE]
+> Corte historico fechado (2026-07-08): consulta `README.md`, `AGENTS.md`, `MASTER_SPEC.md` y `docs/DEPLOY.md` para el estado vigente.
+
 # Session Handoff, 2026-07-08
 
 > **BANNER DE SNAPSHOT / HISTÓRICO (2026-07-22):** el primer bloque de este

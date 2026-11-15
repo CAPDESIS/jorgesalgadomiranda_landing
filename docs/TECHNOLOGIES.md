@@ -8,13 +8,24 @@ guesswork.
 ## Runtime (the deployed website)
 
 ### Vanilla HTML, CSS, JavaScript
-The site ships as static first-party files: `index.html`,
-`assets/styles.css`, `assets/i18n.js`, CV HTML/PDF assets, fonts, and SEO
-files.
-- Why: no bundler, no framework runtime, no server process, and no asset
+The site ships as static first-party files: `index.html`, `404.html`,
+`legal/*.html`, `assets/styles.css`, `assets/i18n.js`, `assets/js/*.js`,
+CV HTML/PDF assets, fonts, and SEO files.
+- Why: no bundler, no framework runtime, no Node server process, and no asset
   compilation step. The browser reads committed files directly.
-- How: edit `index.html`, `assets/styles.css`, and `assets/i18n.js`
-  directly, then run `bun run build` to execute the static validator.
+- How: edit `index.html`, `assets/styles.css`, `assets/i18n.js`, or
+  `assets/js/*.js` directly, then run `bun run lint` and `bun run build`
+  (both execute `python3 scripts/validate-static-site.py`).
+
+### PHP 8.4+ contact proxy (`api/contact.php`)
+- Why: keep `RESEND_API_KEY` server-side while running on Hostinger shared
+  hosting (LiteSpeed/PHP) with zero external backend server.
+- How: `index.html` submits form data same-origin to `/api/contact.php`, which
+  applies honeypot filtering, per-IP rate limiting (`api/lib/rate-limit.php`),
+  input/disposable-domain validation (`api/lib/contact-validator.php`),
+  optional Cloudflare Turnstile verification (`api/lib/turnstile.php`), and
+  Resend delivery (`api/lib/resend-mail.php`), failing closed (`503`) if
+  unconfigured.
 
 ### Self-hosted fonts: Instrument Serif + Geist + Geist Mono
 - Why: Instrument Serif gives the editorial weight to titles. Geist is a
@@ -50,14 +61,15 @@ files.
 Portrait, partner/brand marks, and tech logos ship from this repo:
 - `assets/images/foto_perfil.png`
 - `assets/brands/*` (PayPal, Capdesis, Tienda UNAM, Flexera, Udemy, iOS Lab, Formulae)
-- `assets/logos/*` (Flutter, Swift, Kotlin, Compose, Go, AWS, Docker, K8s, …)
+- `assets/logos/*` (Flutter, Swift, Kotlin, Compose, Go, AWS, Docker, K8s, ...)
 
 Why: the previous Zyrosite CDN (`assets.zyrosite.com`) started returning
 404 in July 2026 and blanked the partners marquee, skills strip, and
 about portrait (see `docs/evidence/image-audit-2026-07-13/`).
 
-Guard: `scripts/check-asset-integrity.py` + `tests/asset-integrity.test.ts`
-block deploys that reintroduce Zyrosite hotlinks or missing local files.
+Guard: `scripts/check-asset-integrity.py` + `scripts/check-local-assets.py` +
+`tests/asset-integrity.test.ts` block deploys that reintroduce Zyrosite
+hotlinks or missing local files.
 
 ### `capdesis.com/images/products/` and `/images/clients/`
 - What: Capdesis product logos and client brand marks.
@@ -67,87 +79,79 @@ block deploys that reintroduce Zyrosite hotlinks or missing local files.
 
 ## Local development tooling
 
-### Bun
-- Why: fast TypeScript-aware runtime with a built-in static server. The
-  team standard across all Capdesis projects.
-- How: `bun run dev` invokes `bunx serve . -l 3000` for local preview.
+### Bun (pinned 1.3.14 in CI)
+- Why: fast TypeScript-aware runtime and test runner with built-in coverage
+  and static file serving (`@happy-dom/global-registrator` as the only
+  devDependency).
+- How: `bun run dev` invokes `bunx serve . -l 3000` for local preview;
+  `bun test --coverage` enforces the 85% coverage threshold in `bunfig.toml`.
 - Install: `curl -fsSL https://bun.sh/install | bash`
 
 ### lftp
-- Why: parallel, resumable FTP mirror with exclude globs. Hostinger only
-  exposes FTP; lftp handles concurrency and incremental upload cleanly.
+- Why: parallel, resumable FTP mirror for emergency fallback deploys.
 - How: `RELEASE_SHA=<40-char-main-sha> bun run deploy` calls
   `scripts/deploy.sh`, verifies the SHA is on `origin/main`, extracts a
-  clean `git archive`, injects deploy-time public tokens, and runs `lftp`
-  with a `mirror --reverse --delete` command.
+  clean `git archive`, runs `scripts/stamp-assets.py`, injects deploy-time
+  public tokens, writes `version.json`, prunes excluded files via
+  `scripts/prune-excluded.py`, and runs `lftp` with
+  `mirror --reverse --delete --exclude-glob api/secrets.php`.
 - Install: `brew install lftp`
 
-### Python `http.server`
-- Why: zero-dependency local probe in CI and during testing.
-- How: `python3 -m http.server 8770 --bind 127.0.0.1 --directory .`
-- Install: bundled with macOS.
+### Python 3
+- Why: zero-dependency static HTML/i18n/asset validation, asset stamping,
+  deploy gating, and exclude pruning in CI and locally.
+- How: `scripts/validate-static-site.py`, `scripts/check-local-assets.py`,
+  `scripts/check-asset-integrity.py`, `scripts/stamp-assets.py`,
+  `scripts/deploy-gates.py`, `scripts/prune-excluded.py`,
+  `scripts/write-version-json.py`, `scripts/write-contact-secrets.py`.
 
 ### Playwright (used during development only)
 - Why: visual verification of the rendered page across themes and viewports.
-- How: invoked from the agent's MCP tool to take screenshots; never shipped
-  with the site.
+- How: invoked manually during design checks; never shipped with the site.
 
 ## Authoring conventions
 
 ### i18n keys
 Every translatable string lives in two places: an `<element data-i18n="key">`
 in the HTML, and the same `key` inside both `I18N.en` and `I18N.es`. The
-EN dict is the source of truth; the HTML default text matches it. The
-parity check (`docs/CHANGELOG.md` shows past runs) catches drift.
+EN dict is the source of truth; the HTML default text matches it.
+`scripts/validate-static-site.py` verifies 343/343 key parity.
 
 ### CSS naming
-BEM-ish: `.section-name`, `.section-name-element`, `.section-name-element--modifier`
-(no `--modifier` in this codebase yet, but the naming would extend that way).
-Custom properties are scoped to `:root` and overridden in
-`[data-theme="light"]`.
+BEM-ish: `.section-name`, `.section-name-element`, `.section-name-element--modifier`.
+Custom properties are scoped to `:root` and overridden in `[data-theme="light"]`
+and `html[data-surface="aux"]`.
 
 ### JavaScript style
-- One IIFE wrapping the whole app
+- IIFEs or small browser helpers under `assets/js/`
 - `const` over `let`; never `var`
-- No dependencies (zero `import`)
-- Immediately frozen objects for any global write
+- Zero external npm runtime dependencies
+- Immediately frozen objects for `window.__I18N__`
 - Explicit `null`-checks before touching DOM nodes that may not exist on
-  every page (the same script runs on the landing and never breaks the CV
-  pages because they don't load it)
+  every page
+- Zero em-dashes (`U+2014`) or en-dashes (`U+2013`), enforced in CI
 
 ## Outside the runtime
 
 ### git
-Conventional commit messages are not enforced, but commits read like commit
-messages, not changelogs. Every commit is authored as
-`Jorge Salgado Miranda <54371626+chochy2001@users.noreply.github.com>` to
-keep history consistent.
+Commit messages are clean, concise, and authored without AI attribution.
 
 ### GitHub
-Repo lives at `github.com/CAPDESIS/jorgesalgadomiranda_landing`. SSH
-remote. Production deploy remains a manual SHA promotion via FTP.
+Repo lives at `github.com/CAPDESIS/jorgesalgadomiranda_landing`.
+Production deploy remains a manual SHA promotion via FTPS (`deploy.yml`).
 
-All four CI workflows run on GitHub-hosted `ubuntu-latest`, which is the fleet
-rule for public repos. What actually runs, verified against the workflow files
-on 2026-09-17:
+All five workflows run on GitHub-hosted `ubuntu-latest`, which is the fleet
+policy for public repositories (`CAPDESIS/CapLiving#525` containment):
 
 | Workflow | Triggers |
 |----------|----------|
-| `ci.yml` | `push` to `main` and `pull_request` to `main` |
+| `ci.yml` | `push` to `main`, `pull_request` to `main` |
 | `gitleaks.yml` | `push` to `main`/`master`, `pull_request` to `main`, `workflow_dispatch` |
 | `test.yml` | `push` to `main`, `pull_request` to `main`, `workflow_dispatch`, daily `schedule` |
-| `release-policy.yml` | `workflow_dispatch` and a daily `schedule` only, **not** push and **not** pull request |
+| `release-policy.yml` | `pull_request` to `main`, `workflow_dispatch`, daily `schedule` |
+| `deploy.yml` | `workflow_dispatch` only (manual SHA promotion to `production`) |
 
-"Secret scanning" here means the **gitleaks** job, a scanner that runs inside
-the workflow. GitHub's own secret scanning is a different thing and it is
-**disabled** on this repository:
-`gh api repos/CAPDESIS/jorgesalgadomiranda_landing --jq
-.security_and_analysis.secret_scanning.status` returns `disabled`, as do
-`secret_scanning_push_protection` and `dependabot_security_updates`. This repo
-is public, so those toggles are free to turn on; nobody has.
-
-A repository ruleset does protect `main` here, unlike the private repos of the
-org: `gh api repos/CAPDESIS/jorgesalgadomiranda_landing/rulesets` lists
-`local-first-main-safety`, and a direct push to `main` is rejected with
-`GH013 ... Required status check "bun test --coverage (>= 85% lines)" is
-expected`. Land changes through a pull request.
+"Secret scanning" in CI means the **gitleaks** job inside `gitleaks.yml`.
+GitHub's native secret scanning and ruleset state live in repo settings;
+`main` is protected by the `local-first-main-safety` ruleset requiring status
+checks (land changes via pull requests).

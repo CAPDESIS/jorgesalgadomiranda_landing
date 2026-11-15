@@ -1,5 +1,8 @@
 # Tickets
 
+> [!NOTE]
+> Corte historico fechado (2026-10-14): consulta `README.md`, `MASTER_SPEC.md` y `docs/DEPLOY.md` para el estado vigente.
+
 Living audit log for `jorgesalgadomiranda.com`. Captures everything
 that has shipped recently, what is in progress, and what is waiting on
 the user so nothing slips between sessions.

@@ -6,9 +6,9 @@ Venmo, CEO of Capdesis, instructor to 54,000+ developers on Udemy.
 
 Live at [**jorgesalgadomiranda.com**](https://jorgesalgadomiranda.com/).
 
-> A single-file, zero-build, bilingual, dual-theme portfolio that
-> doubles as a lead-gen surface for architecture, security,
-> performance and cost audits.
+> A zero-build, bilingual, dual-theme portfolio that doubles as a
+> lead-gen surface for architecture, security, performance and cost
+> audits.
 
 ---
 
@@ -18,27 +18,32 @@ Most portfolio templates stop at "hero + projects + contact form". This
 one is a complete launch kit with things that are rarely considered on
 other personal sites:
 
-- **Zero build step, zero runtime.** One `index.html` (~180 KB, 2980
-  lines) plus `assets/styles.css`, `assets/i18n.js` and small modules
-  under `assets/js/` (some inline JS/CSS remains), self-hosted woff2
-  fonts. No bundler, no framework, no Node runtime. Ships as static
-  files over FTP.
+- **Zero build step, zero JS framework.** One `index.html` (~187 KB,
+  2,983 lines) plus `assets/styles.css`, `assets/i18n.js`, small browser
+  modules under `assets/js/` (some inline JS/CSS remains), and
+  self-hosted woff2 fonts. No bundler, no framework, no Node server
+  runtime. Ships as static files plus a lightweight PHP contact proxy
+  over FTPS.
 - **Bilingual with enforced parity.** ES + EN i18n dictionaries with
   343 keys each, a Python parity check, and a token system
   (`{{yearsSince:YYYY}}`) so tenure copy re-computes itself every new
   year.
 - **Dual-theme OKLCH design system.** Theme + language toggles
   persisted in `localStorage`, respecting `prefers-color-scheme` and
-  `prefers-reduced-motion`.
+  `prefers-reduced-motion`, with WCAG AA contrast verified by test.
 - **ATS-compatible CVs in EN + ES.** Semantic HTML, labelled contact
   block, linearized skills, ATS-parseable dates, keyword-rich for
   Workday / Greenhouse / Lever / Taleo / iCIMS / SuccessFactors.
 - **Automated PDF pipeline.** `scripts/build-cv-pdfs.sh` renders both
   CVs to ATS-readable PDF via headless Chromium, stamps metadata via
   exiftool when present.
-- **Lead gen baked in.** Welcome modal with the "free 30-min review"
-  offer, Resend contact form (same-origin PHP proxy) with honeypot + RFC5322 regex +
-  ~70-entry disposable-email blocklist, Cal.com CTA, Capdesis tier
+- **Hardened Resend contact proxy.** Welcome modal with the "free 30-min
+  review" offer, same-origin PHP proxy (`api/contact.php`) using
+  Resend (only mail transport) with honeypot (`botcheck`), per-IP rate
+  limiting (`api/lib/rate-limit.php`), RFC5322 regex + disposable-email
+  blocklist (`api/lib/contact-validator.php` +
+  `assets/js/email-validation.js`), optional Cloudflare Turnstile
+  verification (`api/lib/turnstile.php`), Cal.com CTA, and Capdesis tier
   card for corporate invoicing.
 - **Analytics built for privacy.** Umami (self-hosted), Cloudflare
   Web Analytics, and PostHog behind a per-provider consent banner
@@ -48,15 +53,19 @@ other personal sites:
   canonical, `sitemap.xml`, `ProfessionalService` JSON-LD with a full
   `OfferCatalog`, `WebSite` schema, open `robots.txt` for the AI answer
   engines (GPT, Claude, Perplexity) that recommend experts today.
-- **Security headers.** `.htaccess` with HSTS, CSP, X-Frame-Options,
-  Referrer-Policy, Permissions-Policy, gzip, immutable font cache,
-  plus Cloudflare at the edge for DDoS + bot fight mode.
+- **Security headers.** `.htaccess` with PHP advisory hardening, HSTS,
+  CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, dotfile /
+  `api/secrets.php` / `api/lib/` deny rules, gzip, immutable font
+  cache, plus Cloudflare at the edge for DDoS + Bot Fight Mode.
 - **Year-aware stats.** `data-years-since` spans and JS-bound spans so
   tenure counters, copyright and CV footers never go stale.
-- **Controlled FTPS deploy to Hostinger.** GitHub Actions workflow with FTP
-  host sanitization, DNS preflight check, cache-busting, post-deploy asset
-  smoke, manual exact-`main` promotion to production, and a manual `lftp`
-  fallback for when Actions is unavailable.
+- **Controlled FTPS deploy to Hostinger.** GitHub Actions workflow on
+  `ubuntu-latest` with automated CI/rollback gates (`scripts/deploy-gates.py`),
+  FTP host sanitization, DNS preflight check, `scripts/stamp-assets.py`
+  cache-busting, `version.json` parity marker, post-deploy asset smoke,
+  manual exact-`main` promotion to production, and a manual `lftp`
+  fallback (`scripts/deploy.sh` + `scripts/prune-excluded.py`) sharing
+  the exact same exclude list.
 - **Accessibility first.** Skip link, `:focus-visible` rings,
   `aria-pressed` toggles, motion / pointer-coarse gates for cursor and
   tilt effects, explicit `width`/`height` on every image.
@@ -70,16 +79,16 @@ try:
 
 - Toggle ES `/` EN (top right).
 - Toggle light `/` dark theme.
-- Wait ~12 seconds, the 30-min-review modal appears. Dismiss persists
+- Wait ~12 seconds: the 30-min-review modal appears. Dismiss persists
   for 7 days.
 - Scroll to *Contact*: 4 audit chips, Cal.com CTA, Capdesis tier card,
-  and the Resend contact form (same-origin PHP proxy).
+  and the Resend contact form (same-origin PHP proxy at `/api/contact.php`).
 - Scroll to *CV*: opens the EN or ES CV in a new tab.
 - Open DevTools `>` Console: you'll see the author signature.
 
 ---
 
-## Quick start (local preview)
+## Quick start (local preview & checks)
 
 ```bash
 git clone https://github.com/CAPDESIS/jorgesalgadomiranda_landing.git
@@ -88,14 +97,18 @@ python3 -m http.server 8765 --bind 127.0.0.1
 open http://127.0.0.1:8765/
 ```
 
-No dependencies, no `npm install`. If you prefer bun:
+Tooling in CI is pinned to **Bun 1.3.14**, **Python 3**, and **PHP 8.4+**:
 
 ```bash
-bun run dev      # local static preview (bunx serve)
-bun run lint     # static-site validator (canonical, hreflang, i18n parity)
-bun run build    # same validator; there is no bundler
-bun test         # bun test --coverage
-bun run deploy   # manual FTP upload via scripts/deploy.sh (needs .env)
+bun install --frozen-lockfile   # install test devDependency (@happy-dom/global-registrator)
+bun run dev                     # local static preview (bunx serve . -l 3000)
+bun run lint                    # static-site validator (canonical, hreflang, i18n parity, contact contract)
+bun run build                   # same static validator (there is no bundler)
+bun run check:assets            # verify local asset references exist on disk
+bun run test:assets             # verify no Zyro hotlinks + run asset integrity tests
+bun test --coverage             # full Bun suite (>= 85% line coverage gate in bunfig.toml)
+bun run test:contact            # PHP contact API contract tests (mocked Resend via RESEND_API_BASE)
+bun run deploy                  # manual FTP recovery upload via scripts/deploy.sh (requires .env + RELEASE_SHA)
 ```
 
 ---
@@ -147,42 +160,72 @@ template. Credit is how this stays sustainable.
 
 ## Repository layout
 
-```
+```text
 jorgesalgadomiranda_landing/
-├── index.html                           Landing page (2980 lines; links assets/styles.css + assets/i18n.js, some inline JS/CSS remains)
+├── index.html                           Landing page (2,983 lines; links assets/styles.css + assets/i18n.js)
+├── 404.html                             Bilingual 404 surface using site OKLCH tokens
 ├── og.html, og.png                      Source + rendered Open Graph card
+├── favicon.ico, favicon.svg, apple-touch-icon.png  Site icons
 ├── robots.txt                           Crawl policy (open to AI answer engines)
-├── sitemap.xml                          hreflang es-MX / en
-├── .htaccess                            HSTS, CSP, gzip, redirects, cache
-├── .env.example                         FTP credentials template
+├── sitemap.xml                          hreflang es-MX / en + legal URLs
+├── humans.txt                           Author and stack attribution
+├── .htaccess                            PHP advisory guard, HSTS, CSP, gzip, redirects, cache
+├── .env.example                         Local recovery FTP credentials template
+├── api/
+│   ├── contact.php                      Same-origin PHP contact proxy (Resend + Turnstile + rate limit)
+│   ├── secrets.example.php              Deploy-injected api/secrets.php shape
+│   └── lib/                             bootstrap-env, contact-validator, rate-limit, turnstile, resend-mail
+├── legal/
+│   ├── privacy.html                     Published bilingual privacy notice
+│   ├── terms.html                       Published bilingual terms of service
+│   └── cookies.html                     Published bilingual cookie notice
 ├── cv/
 │   ├── Jorge_Salgado_Miranda_CV_EN.html ATS-compatible CV (EN)
 │   └── Jorge_Salgado_Miranda_CV_ES.html ATS-compatible CV (ES)
 ├── assets/
-│   ├── styles.css                       Main stylesheet (linked from index.html)
+│   ├── styles.css                       Main stylesheet (3,172 lines, OKLCH dark/light tokens)
 │   ├── i18n.js                          ES/EN dictionaries (343 keys each)
-│   ├── js/                              Small JS modules (consent, cookie banner, email validation, i18n utils, welcome modal)
+│   ├── js/                              Browser modules (consent, cookie-banner, email-validation, i18n-utils, welcome-modal)
+│   ├── brands/, icons/, images/, logos/ Self-hosted visual assets
 │   └── cv/                              Rendered PDFs (built by scripts/build-cv-pdfs.sh)
 ├── fonts/                               Self-hosted woff2 (Instrument Serif, Geist, Geist Mono)
 ├── scripts/
-│   ├── deploy.sh                        Manual FTP deploy (lftp + .env)
-│   ├── stamp-assets.py                  Adds ?v=<SHA[:7]> to every local css/js reference (both deploy paths)
-│   ├── prune-excluded.py                Drops what the deploy.yml exclude list leaves off the server (used by deploy.sh)
-│   └── build-cv-pdfs.sh                 Headless Chromium PDF builder
-├── docs/
-│   ├── ARCHITECTURE.md                  Page structure, design tokens, JS modules
-│   ├── TECHNOLOGIES.md                  Every tech choice, with reasoning
-│   ├── DEPLOY.md                        Deploy flow + troubleshooting
-│   ├── MANUAL_SETUP.md                  Dashboard-only action checklist
-│   ├── GITHUB_SECRETS.md                Full Actions secrets reference
-│   ├── RESEND_SETUP.md                  Contact-form Resend setup
-│   ├── DESIGN_SYSTEM.md                 Visual/interaction vocabulary
-│   ├── TICKETS.md                       Living audit log
-│   ├── CHANGELOG.md                     What shipped, when, why
-│   └── CERTIFICATIONS.md                Cert path rationale
-├── .github/workflows/deploy.yml         CI FTP deploy to Hostinger
-└── README.md                            This file
+│   ├── validate-static-site.py          Static HTML, SEO, i18n parity, and contact contract validator
+│   ├── check-local-assets.py            Verifies local asset paths referenced in HTML
+│   ├── check-asset-integrity.py         Blocks Zyro CDN regressions and missing assets
+│   ├── stamp-assets.py                  Appends ?v=<SHA[:7]> to local css/js/mjs refs (both deploy paths)
+│   ├── write-version-json.py            Writes version.json release SHA marker
+│   ├── write-contact-secrets.py         Generates api/secrets.php from RESEND_* env vars at deploy
+│   ├── deploy-gates.py                  CI green-run polling (ci-wait) and /version.json rollback check
+│   ├── prune-excluded.py                Applies deploy.yml exclude list to staged trees for deploy.sh
+│   ├── deploy.sh                        Manual FTP recovery deploy (lftp + .env)
+│   ├── test-contact-api.php             PHP contact API contract tests (mocked Resend)
+│   ├── php-advisory-htaccess-test.sh    Verifies .htaccess PHP CVE-2026-109618/109619 rules
+│   ├── build-cv-pdfs.sh                 Headless Chromium PDF builder
+│   └── build-og.sh                      Open Graph card renderer
+├── tests/                               14 Bun test suites + setup + support helpers
+├── .github/workflows/                   ci.yml, test.yml, gitleaks.yml, release-policy.yml, deploy.yml
+├── AGENTS.md                            Agent instructions, commands, and zero em/en dash rule
+├── MASTER_SPEC.md                       Verified capability spec and evidence summary
+├── HANDOFF.md                           Historical session handoffs (2026-04 to 2026-07)
+└── docs/                                Detailed documentation (indexed below)
 ```
+
+### Documentation index
+
+- [`AGENTS.md`](AGENTS.md): engineering conventions, zero em/en dash rule, PHP contact notes, and local commands
+- [`MASTER_SPEC.md`](MASTER_SPEC.md): verified capability matrix, integration boundaries, and validation summary
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): page structure, design tokens, JS modules, and i18n
+- [`docs/TECHNOLOGIES.md`](docs/TECHNOLOGIES.md): tech stack choices, workflows, and repo ruleset details
+- [`docs/DEPLOY.md`](docs/DEPLOY.md): FTPS deploy flow, automated gates, exclusions, rollback, and DNS
+- [`docs/MANUAL_SETUP.md`](docs/MANUAL_SETUP.md): dashboard-only setup checklist (Umami, Cloudflare, Search Console)
+- [`docs/GITHUB_SECRETS.md`](docs/GITHUB_SECRETS.md): GitHub Actions secrets reference for `deploy.yml`
+- [`docs/RESEND_SETUP.md`](docs/RESEND_SETUP.md): Resend contact-proxy secrets and Turnstile notes
+- [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md): visual vocabulary, OKLCH tokens, components, and breakpoints
+- [`docs/CERTIFICATIONS.md`](docs/CERTIFICATIONS.md): certification catalog rationale
+- [`docs/TICKETS.md`](docs/TICKETS.md): dated ticket/audit log
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md): historical changelog
+- [`HANDOFF.md`](HANDOFF.md): historical session handoffs
 
 ---
 
@@ -192,35 +235,35 @@ jorgesalgadomiranda_landing/
 |--------------|------------------------------|------------------------------|
 | Background   | `oklch(0.14 0.008 240)`      | `oklch(0.985 0.003 80)`      |
 | Foreground   | `oklch(0.97 0.005 240)`      | `oklch(0.18 0.01 250)`       |
-| Accent       | `oklch(0.82 0.14 210)` cyan  | `oklch(0.52 0.15 210)` cyan  |
+| Accent       | `oklch(0.82 0.14 210)` cyan  | `oklch(0.49 0.15 210)` cyan  |
 | Serif        | Instrument Serif             | Instrument Serif             |
-| Sans         | Geist (300, 700 variable)    | Geist                        |
-| Mono         | Geist Mono (400, 500)        | Geist Mono                   |
+| Sans         | Geist (300-700 variable)     | Geist                        |
+| Mono         | Geist Mono (400-500)         | Geist Mono                   |
 
 Theme is detected from system preference, togglable, persisted in
-`localStorage`. Language is detected from `navigator.language`,
+`localStorage`. Language is detected from `navigator.language` (or `?lang=es`/`en`),
 togglable, persisted.
 
 ---
 
 ## Tech inventory
 
-- **Structure**: single `index.html`, two standalone CVs in `cv/`.
-- **Fonts**: self-hosted woff2, `@font-face` declarations inline.
+- **Structure**: `index.html`, `404.html`, `legal/*.html`, and two standalone CVs in `cv/`.
+- **Fonts**: self-hosted woff2 under `fonts/`.
 - **Animations**: CSS transitions + one `IntersectionObserver` for
   reveal / count-up / scramble. No animation libraries.
-- **i18n**: two frozen dictionaries on `window.__I18N__`, swapped via
+- **i18n**: two frozen dictionaries on `window.__I18N__` (343 keys each), swapped via
   `data-i18n` attribute walker.
 - **Forms**: vanilla JS with client-side RFC5322 regex + disposable
-  email blocklist, posting to same-origin `/api/contact.php` (Resend, the only mail provider).
-- **Analytics**: [Umami](https://umami.is/) (self-hosted) +
-  [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/).
-- **Bookings**: [Cal.com](https://cal.com/) inline button.
+  email blocklist, posting to same-origin `/api/contact.php` (PHP 8.4+ Resend proxy with honeypot, per-IP rate limiting, and optional Turnstile verification).
+- **Analytics**: [Umami](https://umami.is/) (self-hosted),
+  [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/), and [PostHog](https://posthog.com/), gated by `assets/js/consent.js` and `assets/js/cookie-banner.js`.
+- **Bookings**: [Cal.com](https://cal.com/) external CTA.
 - **SEO**: JSON-LD `Person` + `ProfessionalService` + `WebSite`,
   hreflang, canonical, OpenGraph + Twitter Card, `sitemap.xml`,
   `robots.txt`.
 - **Security**: `.htaccess` headers + Cloudflare edge.
-- **CI**: GitHub Actions with `SamKirkland/FTP-Deploy-Action`.
+- **CI/CD**: GitHub Actions on `ubuntu-latest` (`ci.yml`, `test.yml`, `gitleaks.yml`, `release-policy.yml`, `deploy.yml` with `SamKirkland/FTP-Deploy-Action`).
 
 Full reasoning for each choice is in
 [`docs/TECHNOLOGIES.md`](docs/TECHNOLOGIES.md).
@@ -235,11 +278,12 @@ Full reasoning for each choice is in
    Hostinger, adjust `server-dir` (Hostinger FTP users are chrooted to
    `public_html/`, so `./` is correct there).
 3. Trigger `workflow_dispatch` for `.github/workflows/deploy.yml` with the
-   exact `main` SHA you want to promote. Pushes and schedules validate only; the
-   FTPS upload happens from the manual production workflow after release checks
-   and asset smoke.
+   exact `main` SHA you want to promote and `confirm_no_p0_p1_alerts=yes`.
+   Pushes and schedules validate only; the FTPS upload happens from the
+   manual production workflow after automated CI/rollback gates and
+   post-deploy asset smoke.
 4. Fallback: `cp .env.example .env`, fill in credentials, then
-   `bash scripts/deploy.sh`.
+   `RELEASE_SHA=<40-char-main-sha> bun run deploy`.
 
 Full deploy doc: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
@@ -247,14 +291,16 @@ Full deploy doc: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ## Configuration placeholders
 
-Before going live, replace these in `index.html`:
+Analytics placeholders in `index.html` are replaced at deploy time from
+GitHub Actions Secrets (do not commit real tokens):
 
-| Placeholder                          | Source                                |
+| Placeholder / Setting                | Source                                |
 |--------------------------------------|---------------------------------------|
-| `YOUR_UMAMI_WEBSITE_ID`              | Your Umami dashboard → Websites → Add |
-| `YOUR_CF_BEACON_TOKEN`               | Cloudflare → Analytics → Web Analytics |
-| `YOUR_POSTHOG_KEY`                   | PostHog → Settings → Project API key  |
-| `RESEND_API_KEY` (+ FROM/TO)          | Resend dashboard → deploy injects `api/secrets.php` |
+| `YOUR_UMAMI_WEBSITE_ID`              | Umami dashboard > Websites > Add (`UMAMI_WEBSITE_ID`) |
+| `YOUR_CF_BEACON_TOKEN`               | Cloudflare > Analytics > Web Analytics (`CF_BEACON_TOKEN`) |
+| `YOUR_POSTHOG_KEY`                   | PostHog > Settings > Project API key (`PUBLIC_POSTHOG_KEY`) |
+| `RESEND_API_KEY` (+ FROM/TO/REPLY_TO)| Resend dashboard > deploy injects `api/secrets.php` |
+| `TURNSTILE_SECRET_KEY` (optional)    | Cloudflare Turnstile > `api/secrets.php` / env + `jsm-turnstile-site-key` |
 | `jorge-salgado-miranda-lt3qxa/30min` | Your Cal.com event-type slug (replace with your own) |
 
 Analytics loaders skip any provider whose token still holds a `YOUR_`
@@ -279,7 +325,7 @@ with the link.
 
 ## License
 
-**Source code** (HTML structure, CSS, JavaScript, CI workflows, deploy
+**Source code** (HTML structure, CSS, JavaScript, PHP proxy, CI workflows, deploy
 scripts): [MIT License](https://opensource.org/licenses/MIT) with the
 attribution requirements above.
 
