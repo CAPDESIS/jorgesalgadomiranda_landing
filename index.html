@@ -2626,8 +2626,19 @@
       status.textContent = key ? t(key, '') : '';
     };
 
+    // In-flight guard: true only between a passed validation and the end of the
+    // request. Rapid clicks, Enter key repeats and retries while a send is still
+    // pending must not fire a second POST (each one is a Resend email).
+    let isSubmitting = false;
+
+    const setSubmitBusy = (busy) => {
+      if (submitBtn) submitBtn.disabled = busy;
+      if (submitLabel) submitLabel.textContent = busy ? t('form.sending', 'Sending…') : t('form.submit', 'Send message');
+    };
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (isSubmitting) return;
       setStatus('idle', null);
 
       // Honeypot tripped → silently succeed so bots don't learn
@@ -2656,10 +2667,11 @@
         localeInput.value = document.documentElement.dataset.lang || 'es';
       }
 
-      // Submit to same-origin PHP proxy (Resend is the only mail provider).
-      if (submitBtn) submitBtn.disabled = true;
-      if (submitLabel) submitLabel.textContent = t('form.sending', 'Sending…');
+      // Validation passed: lock the form until this request settles.
+      isSubmitting = true;
+      setSubmitBusy(true);
 
+      // Submit to same-origin PHP proxy (Resend is the only mail provider).
       try {
         const widgetToken = await turnstileToken();
         const fd = new FormData(form);
@@ -2679,9 +2691,16 @@
       } catch (_) {
         setStatus('error', 'form.err.submit');
       } finally {
-        if (submitBtn) submitBtn.disabled = false;
-        if (submitLabel) submitLabel.textContent = t('form.submit', 'Send message');
+        isSubmitting = false;
+        setSubmitBusy(false);
       }
+    });
+
+    // bfcache restore (Safari/Firefox back-forward): the button can be restored
+    // in a disabled state from a frozen page. Only reset when no request is
+    // still in flight, so a pending send keeps the lock until it settles.
+    window.addEventListener('pageshow', (ev) => {
+      if (ev.persisted && !isSubmitting) setSubmitBusy(false);
     });
   }
 
